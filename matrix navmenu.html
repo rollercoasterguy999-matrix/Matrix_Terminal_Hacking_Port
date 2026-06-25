@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix_Terminal</title>
+    <style>
+        :root {
+            --matrix-glow: #00ff41;
+            --matrix-dark: #010402;
+            --matrix-dim: #008f11;
+            --matrix-panel: rgba(1, 4, 2, 0.92);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--matrix-dark);
+            color: #ffffff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* --- NAVIGATION SIDEBAR PANEL --- */
+        nav {
+            position: relative;
+            width: 280px;
+            height: 100%;
+            background-color: var(--matrix-panel);
+            border-right: 2px solid var(--matrix-glow);
+            box-shadow: 5px 0 25px rgba(0, 255, 65, 0.15);
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+        }
+
+        /* Background Canvas Layer inside Nav Container */
+        nav canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            opacity: 0.15;
+            pointer-events: none;
+        }
+
+        /* Terminal System Header Box */
+        .nav-header {
+            padding: 25px 20px;
+            border-bottom: 1px dashed var(--matrix-dim);
+            flex-shrink: 0;
+        }
+
+        .sys-title {
+            color: var(--matrix-glow);
+            font-size: 16px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            margin: 0 0 5px 0;
+            text-shadow: 0 0 8px var(--matrix-glow);
+        }
+
+        .sys-status {
+            font-size: 11px;
+            color: #888;
+            margin: 0;
+        }
+
+        /* Nav List Items Matrix Links - SCROLLABLE MAIN MENU */
+        .nav-links {
+            list-style: none;
+            padding: 15px 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            overflow-y: auto; /* Required for scrollbar */
+            flex-grow: 1;
+        }
+
+        /* --- NEON GREEN SCROLLBAR CODE --- */
+        .nav-links::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .nav-links::-webkit-scrollbar-track {
+            background: rgba(1, 4, 2, 0.5);
+        }
+
+        .nav-links::-webkit-scrollbar-thumb {
+            background: var(--matrix-dim);
+            border-radius: 3px;
+        }
+
+        .nav-links::-webkit-scrollbar-thumb:hover {
+            background: var(--matrix-glow);
+            box-shadow: 0 0 8px var(--matrix-glow);
+        }
+
+        .nav-links li a {
+            display: block;
+            padding: 12px 25px;
+            color: var(--matrix-dim);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            transition: all 0.25s ease;
+            border-left: 4px solid transparent;
+            position: relative;
+        }
+
+        .nav-links li a:hover {
+            color: #ffffff;
+            background: rgba(0, 255, 65, 0.08);
+            border-left: 4px solid var(--matrix-glow);
+            text-shadow: 0 0 8px var(--matrix-glow);
+            padding-left: 32px;
+        }
+
+        .nav-links li.active a {
+            color: var(--matrix-glow);
+            background: rgba(0, 255, 65, 0.04);
+            border-left: 4px solid var(--matrix-glow);
+            text-shadow: 0 0 10px var(--matrix-glow);
+        }
+
+        .nav-links li a::before { content: "[ "; opacity: 0; transition: opacity 0.2s ease; color: var(--matrix-glow); }
+        .nav-links li a::after { content: " ]"; opacity: 0; transition: opacity 0.2s ease; color: var(--matrix-glow); }
+        .nav-links li a:hover::before, .nav-links li a:hover::after { opacity: 1; }
+
+        /* System Footer Node Information */
+        .nav-footer {
+            padding: 15px 20px;
+            font-size: 10px;
+            color: var(--matrix-dim);
+            border-top: 1px solid var(--matrix-dim);
+            text-align: center;
+            flex-shrink: 0;
+            background: var(--matrix-dark);
+        }
+
+        /* --- CRT MAIN CONTENT PANEL AREA --- */
+        main {
+            flex-grow: 1;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: flex-start;
+            background: radial-gradient(circle at center, #021104 0%, #000000 100%);
+            position: relative;
+        }
+
+        main::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            background-size: 100% 4px;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .console-output { max-width: 600px; }
+        .console-output h2 { color: var(--matrix-glow); font-size: 28px; margin-bottom: 15px; text-shadow: 0 0 10px var(--matrix-glow); }
+        .console-output p { color: #aaccff; line-height: 1.6; font-size: 15px; }
+    </style>
+</head>
+<body>
+
+    <nav>
+        <canvas id="menuRainCanvas"></canvas>
+        
+        <div class="nav-header">
+            <div class="sys-title">NEO_CON.SYS</div>
+            <div class="sys-status">SECURE_LINK: ACTIVE</div>
+        </div>
+
+        <ul class="nav-links">
+            <li class="active"><a href="pong.html">01_//pong/mainframe</a></li>
+            <li><a href="Missile commander.html">02_//missile/commander</a></li>
+            <li><a href="asteroids.html">03_//asteroids/datastreams</a></li>
+            <li><a href="matrix invaders.html">04_//matrix/invaders</a></li>
+            <li><a href="pacman.html">05_//pacman/malware</a></li>
+            <li><a href="tetris.html">06_//tetris/bitcoin</a></li>
+            <li><a href="matrix scooter.html">07_//scooter/account</a></li>
+            <li><a href="highway racer.html">08_//highway/racer</a></li>
+            <li><a href="pool.html">09_//pool/shutdown</a></li>
+            <li><a href="chess.html">10_//chess/div</a></li>
+            <li><a href="snake.html">11_//snake/files</a></li>
+            <li><a href="flappy bird.html">12_//flappy/bird/data</a></li>
+            <li><a href="gd.html">13_//geometry/dash</a></li>
+            <li><a href="sudoku.html">14_//sudoku/hacks</a></li>
+            <li><a href="frogger.html">15_//frogger/terminate</a></li>
+        </ul>
+
+        <div class="nav-footer">
+            OPERATOR_ID: 101-A<br>
+            BUFFER_FREE: 84.2%
+        </div>
+    </nav>
+
+    <main>
+        <div class="console-output">
+            <h2>System Mainframe Booted.</h2>
+            <p>Welcome back, Operator. Choose a protocol index path layer from the system deployment navigation panel menu matrix to initialize core routines.</p>
+        </div>
+    </main>
+
+    <script>
+        const canvas = document.getElementById('menuRainCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        const fontSize = 14;
+        const columns = Math.floor(canvas.width / fontSize);
+        const rainDrops = Array(columns).fill(1);
+        const binaryChars = "01";
+
+        function drawMatrixRain() {
+            ctx.fillStyle = 'rgba(1, 4, 2, 0.08)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#00ff41';
+            ctx.font = fontSize + 'px monospace';
+
+            for (let i = 0; i < rainDrops.length; i++) {
+                const char = binaryChars[Math.floor(Math.random() * binaryChars.length)];
+                const x = i * fontSize;
+                const y = rainDrops[i] * fontSize;
+
+                ctx.fillText(char, x, y);
+
+                if (y > canvas.height && Math.random() > 0.975) {
+                    rainDrops[i] = 0;
+                }
+                rainDrops[i]++;
+            }
+        }
+
+        setInterval(drawMatrixRain, 33);
+
+        const links = document.querySelectorAll('.nav-links li');
+        links.forEach(item => {
+            item.addEventListener('click', function() {
+                links.forEach(l => l.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>

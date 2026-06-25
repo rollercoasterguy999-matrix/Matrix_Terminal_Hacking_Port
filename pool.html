@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix_Pool_Simulator.exe</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #020503;
+            color: #00ff41;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        h1 {
+            margin: 0 0 15px 0;
+            font-size: 22px;
+            letter-spacing: 4px;
+            text-shadow: 0 0 8px #00ff41;
+        }
+
+        #game-container {
+            position: relative;
+            border: 3px solid #00ff41;
+            box-shadow: 0 0 30px rgba(0, 255, 65, 0.3);
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: -35px;
+            left: 5px;
+            right: 5px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 13px;
+            text-shadow: 0 0 5px #000;
+        }
+
+        /* CRT Scanline Overlay */
+        #game-container::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            z-index: 2;
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>[ MAINFRAME_POOL_V1.0 ]</h1>
+
+    <div id="game-container">
+        <div id="ui-layer">
+            <span id="status-display">SYSTEM_READY: CLICK & DRAG CUE BALL TO AIM</span>
+            <span id="packet-display">PACKETS_REMAINING: 9</span>
+        </div>
+        <canvas id="poolCanvas" width="800" height="400"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('poolCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Physics Configurations
+        const friction = 0.985;
+        const ballRadius = 12;
+
+        // Interactive States
+        let isAiming = false;
+        let mouseX = 0;
+        let mouseY = 0;
+
+        // Pockets positions (Standard Pool Layout)
+        const pockets = [
+            { x: 20, y: 20, radius: 24 },             // Top Left
+            { x: canvas.width / 2, y: 15, radius: 22 }, // Top Middle
+            { x: canvas.width - 20, y: 20, radius: 24 },// Top Right
+            { x: 20, y: canvas.height - 20, radius: 24 }, // Bottom Left
+            { x: canvas.width / 2, y: canvas.height - 15, radius: 22 }, // Bottom Middle
+            { x: canvas.width - 20, y: canvas.height - 20, radius: 24 } // Bottom Right
+        ];
+
+        // Entity Component Matrix
+        let balls = [];
+        let matrixDrops = [];
+        const chars = "0123456789日ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱ";
+
+        // Generate Digital Rain Streams
+        for (let i = 0; i < 40; i++) {
+            matrixDrops.push({ x: i * 20, y: Math.random() * canvas.height, speed: Math.random() * 1.2 + 0.4 });
+        }
+
+        // Setup Pool Game Elements
+        function initGame() {
+            balls = [];
+            
+            // White Probe Cue Ball
+            balls.push({ x: 200, y: 200, vx: 0, vy: 0, isCue: true, color: '#ffffff' });
+
+            // Triangle Pyramid Formation for data packets
+            const startX = 550;
+            const startY = 200;
+            const rowSpacing = ballRadius * 1.73;
+            let packetNum = 1;
+
+            for (let row = 0; row < 3; row++) {
+                for (let col = 0; col <= row; col++) {
+                    let bx = startX + row * rowSpacing;
+                    let by = startY + (col - row / 2) * (ballRadius * 2.1);
+                    balls.push({ x: bx, y: by, vx: 0, vy: 0, isCue: false, id: packetNum++ });
+                }
+            }
+            updateUI();
+        }
+
+        function updateUI() {
+            const packetsLeft = balls.filter(b => !b.isCue).length;
+            document.getElementById('packet-display').innerText = `PACKETS_REMAINING: ${packetsLeft}`;
+            if (packetsLeft === 0) {
+                document.getElementById('status-display').innerText = `MAINFRAME_CLEARED. SUCCESS.`;
+            }
+        }
+
+        // Pointer Event Handlers
+        canvas.addEventListener('mousedown', (e) => {
+            if (isSystemMoving()) return; // Lock inputs during kinetic calculations
+
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+            const cueBall = balls[0];
+
+            // Verify click lands within proximity of white probe
+            const dist = Math.hypot(clickX - cueBall.x, clickY - cueBall.y);
+            if (dist < ballRadius * 2) {
+                isAiming = true;
+                mouseX = clickX;
+                mouseY = clickY;
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isAiming) return;
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (!isAiming) return;
+            isAiming = false;
+
+            const cueBall = balls[0];
+            // Multiplier translates visual drag displacement into velocity vectors
+            const dx = cueBall.x - mouseX;
+            const dy = cueBall.y - mouseY;
+
+            cueBall.vx = dx * 0.12;
+            cueBall.vy = dy * 0.12;
+            document.getElementById('status-display').innerText = `PROBE_DEPLOYED. CALCULATING IMPULSE...`;
+        });
+
+        function isSystemMoving() {
+            return balls.some(b => Math.abs(b.vx) > 0.05 || Math.abs(b.vy) > 0.05);
+        }
+
+        // Dynamic Engine Calculations
+        function update() {
+            // Background Animation loop
+            for (let drop of matrixDrops) {
+                drop.y += drop.speed;
+                if (drop.y > canvas.height) drop.y = -20;
+            }
+
+            // Standard status update when motion terminates
+            if (!isSystemMoving() && document.getElementById('status-display').innerText.startsWith("PROBE")) {
+                document.getElementById('status-display').innerText = "SYSTEM_READY: AWAITING INTERACTION";
+            }
+
+            // Ball Position Updates & Boundary Elasticity
+            for (let b of balls) {
+                b.x += b.vx;
+                b.y += b.vy;
+                b.vx *= friction;
+                b.vy *= friction;
+
+                // Border cushion boundaries
+                if (b.x < ballRadius + 15) { b.x = ballRadius + 15; b.vx *= -1; }
+                if (b.x > canvas.width - ballRadius - 15) { b.x = canvas.width - ballRadius - 15; b.vx *= -1; }
+                if (b.y < ballRadius + 15) { b.y = ballRadius + 15; b.vy *= -1; }
+                if (b.y > canvas.height - ballRadius - 15) { b.y = canvas.height - ballRadius - 15; b.vy *= -1; }
+
+                // Pocket Capture System Checks
+                for (let p of pockets) {
+                    if (Math.hypot(b.x - p.x, b.y - p.y) < p.radius) {
+                        if (b.isCue) {
+                            // Reset Cue Ball if pocketed (scratch)
+                            b.x = 200; b.y = 200; b.vx = 0; b.vy = 0;
+                            document.getElementById('status-display').innerText = `PROBE_LOST. REBOOTING UNIT...`;
+                        } else {
+                            // Purge target packet from active system array
+                            balls = balls.filter(ball => ball !== b);
+                            updateUI();
+                        }
+                    }
+                }
+            }
+
+            // Multi-body Micro-Collision Resolution Equations
+            for (let i = 0; i < balls.length; i++) {
+                for (let j = i + 1; j < balls.length; j++) {
+                    let b1 = balls[i];
+                    let b2 = balls[j];
+
+                    let dx = b2.x - b1.x;
+                    let dy = b2.y - b1.y;
+                    let dist = Math.hypot(dx, dy);
+
+                    if (dist < ballRadius * 2) {
+                        // Prevent overlapping states by sliding nodes out of collision profiles
+                        let overlap = (ballRadius * 2) - dist;
+                        let nx = dx / dist;
+                        let ny = dy / dist;
+
+                        b1.x -= nx * overlap * 0.5;
+                        b1.y -= ny * overlap * 0.5;
+                        b2.x += nx * overlap * 0.5;
+                        b2.y += ny * overlap * 0.5;
+
+                        // Traditional Elastic Vector Dot Product Exchanges
+                        let kx = b1.vx - b2.vx;
+                        let ky = b1.vy - b2.vy;
+                        let p = nx * kx + ny * ky;
+
+                        if (p > 0) { // Exchange kinetic impulses
+                            b1.vx -= p * nx;
+                            b1.vy -= p * ny;
+                            b2.vx += p * nx;
+                            b2.vy += p * ny;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Canvas Terminal Draw Processing
+        function draw() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Base Wireframe Network Table Layout Border
+            ctx.strokeStyle = 'rgba(0, 255, 65, 0.2)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < canvas.width; i += 40) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+            }
+            for (let j = 0; j < canvas.height; j += 40) {
+                ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(canvas.width, j); ctx.stroke();
+            }
+
+            // Stream background code layer
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.05)';
+            ctx.font = '13px monospace';
+            for (let drop of matrixDrops) {
+                let char = chars[Math.floor(Math.random() * chars.length)];
+                ctx.fillText(char, drop.x, drop.y);
+            }
+
+            // Draw Core Access Pockets
+            for (let p of pockets) {
+                ctx.fillStyle = '#000000';
+                ctx.strokeStyle = '#00ff41';
+                ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+                // Decorative crosshairs inside black holes
+                ctx.strokeStyle = 'rgba(0, 255, 65, 0.3)';
+                ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(p.x - p.radius, p.y); ctx.lineTo(p.x + p.radius, p.y); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(p.x, p.y - p.radius); ctx.lineTo(p.x, p.y + p.radius); ctx.stroke();
+            }
+
+            // Outer Perimeter Walls
+            ctx.strokeStyle = '#00ff41';
+            ctx.lineWidth = 6;
+            ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
+
+            // Vector Aim Line Targeting Interface
+            if (isAiming) {
+                const cueBall = balls[0];
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath();
+                ctx.moveTo(cueBall.x, cueBall.y);
+                // Inverse ray trace highlights trajectory line forward
+                ctx.lineTo(cueBall.x + (cueBall.x - mouseX), cueBall.y + (cueBall.y - mouseY));
+                ctx.stroke();
+                ctx.setLineDash([]); // Reset line mode
+            }
+
+            // Node Nodes Entities Loop Layer
+            for (let b of balls) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, ballRadius, 0, Math.PI * 2);
+
+                if (b.isCue) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#ffffff';
+                    ctx.fill();
+                } else {
+                    ctx.fillStyle = '#021505';
+                    ctx.strokeStyle = '#00ff41';
+                    ctx.lineWidth = 2;
+                    ctx.shadowBlur = 6;
+                    ctx.shadowColor = '#00ff41';
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // Display binary character IDs inside packets
+                    ctx.fillStyle = '#00ff41';
+                    ctx.shadowBlur = 0;
+                    ctx.font = '9px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(b.id % 2 === 0 ? "1" : "0", b.x, b.y + 0.5);
+                }
+                ctx.restore();
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // Boot Init sequence execution
+        initGame();
+        loop();
+    </script>
+</body>
+</html>

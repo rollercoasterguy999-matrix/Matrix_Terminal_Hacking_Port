@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix Sudoku Terminal v1.0.0</title>
+    <style>
+        :root {
+            --bg-color: #030704;
+            --matrix-green: #00ff41;
+            --matrix-dark-green: #003b00;
+            --board-border: #00ff41;
+            --cell-border: #003b00;
+            --selected-bg: rgba(0, 255, 65, 0.25);
+            --wrong-bg: rgba(255, 0, 0, 0.25);
+            --wrong-text: #ff3333;
+            --text-color: #00ff41;
+            --fixed-text: #008f11;
+            --fixed-bg: #051107;
+        }
+
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+            text-shadow: 0 0 5px rgba(0, 255, 65, 0.5);
+            overflow-x: hidden;
+        }
+
+        h1 { 
+            margin-top: 10px;
+            margin-bottom: 20px; 
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            font-size: 28px;
+        }
+
+        #setup-screen, #game-screen {
+            background: #000;
+            padding: 25px;
+            border-radius: 4px;
+            border: 2px solid var(--matrix-green);
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.2);
+            text-align: center;
+            max-width: 450px;
+            width: 100%;
+            box-sizing: border-box;
+            z-index: 5;
+        }
+
+        .hidden { display: none !important; }
+
+        .menu-group {
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            font-size: 14px;
+        }
+
+        select, button {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            font-family: 'Courier New', Courier, monospace;
+            border-radius: 4px;
+            border: 1px solid var(--matrix-green);
+            background: #000;
+            color: var(--matrix-green);
+            cursor: pointer;
+            box-sizing: border-box;
+        }
+
+        select:focus, button:focus {
+            outline: none;
+            box-shadow: 0 0 8px var(--matrix-green);
+        }
+
+        button {
+            background-color: var(--matrix-dark-green);
+            font-weight: bold;
+            margin-top: 10px;
+            text-transform: uppercase;
+            transition: all 0.2s;
+        }
+
+        button:hover { 
+            background-color: var(--matrix-green); 
+            color: #000;
+            box-shadow: 0 0 15px var(--matrix-green);
+        }
+
+        #hud {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            font-size: 14px;
+            font-weight: bold;
+            border: 1px dashed var(--matrix-green);
+            padding: 10px 15px;
+            background: rgba(0, 59, 0, 0.1);
+        }
+
+        #sudoku-board {
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            border: 3px solid var(--board-border);
+            width: 100%;
+            margin: 0 auto 20px auto;
+            aspect-ratio: 1 / 1;
+            background-color: #000;
+        }
+
+        .cell {
+            border: 1px solid var(--cell-border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            color: var(--matrix-green);
+            background-color: #000;
+            transition: background 0.1s;
+        }
+
+        .cell:nth-child(3n) { border-right: 2px solid var(--board-border); }
+        .cell:nth-child(9n) { border-right: none; }
+        
+        .cell:nth-child(n+19):nth-child(-n+27),
+        .cell:nth-child(n+46):nth-child(-n+54) {
+            border-bottom: 2px solid var(--board-border);
+        }
+
+        .cell.fixed { 
+            background-color: var(--fixed-bg); 
+            color: var(--fixed-text); 
+            cursor: not-allowed; 
+        }
+        
+        .cell.selected { 
+            background-color: var(--selected-bg);
+            box-shadow: inset 0 0 5px var(--matrix-green);
+        }
+        
+        .cell.wrong { 
+            background-color: var(--wrong-bg); 
+            color: var(--wrong-text);
+            text-shadow: 0 0 5px var(--wrong-text);
+        }
+
+        #number-pad {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        .pad-btn {
+            padding: 12px;
+            font-size: 18px;
+            background-color: #000;
+            border: 1px solid var(--matrix-green);
+        }
+        
+        .pad-btn.delete { 
+            border-color: var(--wrong-text); 
+            color: var(--wrong-text); 
+        }
+        .pad-btn.delete:hover {
+            background-color: #500;
+            color: #fff;
+            box-shadow: 0 0 10px var(--wrong-text);
+        }
+
+        /* Matrix Overlay Styles */
+        #matrix-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 100;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        #matrix-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 101;
+        }
+
+        #overlay-ui {
+            position: relative;
+            z-index: 102;
+            text-align: center;
+            padding: 20px;
+            pointer-events: none;
+        }
+
+        .overlay-title {
+            font-size: 42px;
+            font-weight: bold;
+            letter-spacing: 4px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .overlay-title.win {
+            color: #00ff41;
+            text-shadow: 0 0 20px #00ff41, 0 0 40px #00ff41;
+        }
+
+        .overlay-title.lose {
+            color: #ff3333;
+            text-shadow: 0 0 20px #ff3333, 0 0 40px #ff3333;
+        }
+
+        .overlay-sub {
+            font-size: 16px;
+            color: #ffffff;
+            opacity: 0.8;
+            letter-spacing: 2px;
+            animation: blink 1.5s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>[ SYSTEM.SUDOKU ]</h1>
+
+    <div id="setup-screen">
+        <div class="menu-group">
+            <label for="mode-select">> SELECT CODE_MODE:</label>
+            <select id="mode-select">
+                <option value="Classic">CLASSIC (NORMAL_RUN)</option>
+                <option value="Time Attack">TIME ATTACK (OVERCLOCK)</option>
+                <option value="Lives Mode">LIVES MODE (3_STRIKES)</option>
+            </select>
+        </div>
+
+        <div class="menu-group">
+            <label for="diff-select">> SELECT THREAT_LEVEL:</label>
+            <select id="diff-select">
+                <option value="Easy">EASY (LOW_SECURITY)</option>
+                <option value="Medium">MEDIUM (MODERATE)</option>
+                <option value="Hard">HARD (MAINFRAME)</option>
+            </select>
+        </div>
+
+        <button onclick="startGame()">INITIALIZE_GRID</button>
+    </div>
+
+    <div id="game-screen" class="hidden">
+        <div id="hud">
+            <span id="hud-mode">MODE: CLASSIC</span>
+            <span id="hud-status">SYS_TIME: 00:00</span>
+        </div>
+
+        <div id="sudoku-board"></div>
+
+        <div id="number-pad">
+            <button class="pad-btn" onclick="pressNumber(1)">1</button>
+            <button class="pad-btn" onclick="pressNumber(2)">2</button>
+            <button class="pad-btn" onclick="pressNumber(3)">3</button>
+            <button class="pad-btn" onclick="pressNumber(4)">4</button>
+            <button class="pad-btn" onclick="pressNumber(5)">5</button>
+            <button class="pad-btn" onclick="pressNumber(6)">6</button>
+            <button class="pad-btn" onclick="pressNumber(7)">7</button>
+            <button class="pad-btn" onclick="pressNumber(8)">8</button>
+            <button class="pad-btn" onclick="pressNumber(9)">9</button>
+            <button class="pad-btn delete" onclick="pressNumber(0)">⌫</button>
+        </div>
+
+        <button onclick="quitGame()" style="background-color: #111; border-color: #444; color: #666; margin-top: 15px;">ABORT_RUN</button>
+    </div>
+
+    <div id="matrix-overlay" class="hidden" onclick="dismissOverlay()">
+        <canvas id="matrix-canvas"></canvas>
+        <div id="overlay-ui">
+            <div id="overlay-title" class="overlay-title">SYSTEM STATUS</div>
+            <div id="overlay-desc" style="margin-bottom: 25px; font-weight: bold;"></div>
+            <div class="overlay-sub">CLICK ANYWHERE TO REBOOT TERMINAL...</div>
+        </div>
+    </div>
+
+    <script>
+        const baseGrid = [
+            [5, 3, 4, 6, 7, 8, 9, 1, 2],
+            [6, 7, 2, 1, 9, 5, 3, 4, 8],
+            [1, 9, 8, 3, 4, 2, 5, 6, 7],
+            [8, 5, 9, 7, 6, 1, 4, 2, 3],
+            [4, 2, 6, 8, 5, 3, 7, 9, 1],
+            [7, 1, 3, 9, 2, 4, 8, 5, 6],
+            [9, 6, 1, 5, 3, 7, 2, 8, 4],
+            [2, 8, 7, 4, 1, 9, 6, 3, 5],
+            [3, 4, 5, 2, 8, 6, 1, 7, 9]
+        ];
+
+        let solution = [];
+        let puzzle = [];
+        let selectedCell = null;
+        let gameMode = "Classic";
+        let difficulty = "Easy";
+        let timerInterval = null;
+        let timeRemainingOrElapsed = 0;
+        let livesLeft = 3;
+
+        // Matrix Rain Animation Variables
+        let matrixInterval = null;
+        const canvas = document.getElementById('matrix-canvas');
+        const ctx = canvas.getContext('2d');
+        let columns = [];
+        const chars = "0123456789日ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱﾎﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍﾗﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍ";
+
+        function shuffleBoard() {
+            solution = baseGrid.map(row => [...row]);
+            const nums = [1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5);
+            
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    solution[r][c] = nums[solution[r][c] - 1];
+                }
+            }
+        }
+
+        function generatePuzzle() {
+            shuffleBoard();
+            puzzle = solution.map(row => [...row]);
+            
+            const removeCounts = { "Easy": 32, "Medium": 44, "Hard": 54 };
+            let toRemove = removeCounts[difficulty];
+
+            while (toRemove > 0) {
+                let r = Math.floor(Math.random() * 9);
+                let c = Math.floor(Math.random() * 9);
+                if (puzzle[r][c] !== 0) {
+                    puzzle[r][c] = 0;
+                    toRemove--;
+                }
+            }
+        }
+
+        function buildUIBoard() {
+            const boardContainer = document.getElementById('sudoku-board');
+            boardContainer.innerHTML = '';
+            selectedCell = null;
+
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    const cell = document.createElement('div');
+                    cell.classList.add('cell');
+                    cell.dataset.row = r;
+                    cell.dataset.col = c;
+
+                    if (puzzle[r][c] !== 0) {
+                        cell.innerText = puzzle[r][c];
+                        cell.classList.add('fixed');
+                    } else {
+                        cell.addEventListener('click', () => selectCell(cell));
+                    }
+                    boardContainer.appendChild(cell);
+                }
+            }
+        }
+
+        function selectCell(cell) {
+            document.querySelectorAll('.cell').forEach(c => c.classList.remove('selected'));
+            selectedCell = cell;
+            cell.classList.add('selected');
+        }
+
+        function pressNumber(num) {
+            if (!selectedCell || !document.getElementById('matrix-overlay').classList.contains('hidden')) return;
+            
+            const r = parseInt(selectedCell.dataset.row);
+            const c = parseInt(selectedCell.dataset.col);
+
+            if (num === 0) {
+                puzzle[r][c] = 0;
+                selectedCell.innerText = '';
+                selectedCell.classList.remove('wrong');
+                return;
+            }
+
+            if (solution[r][c] === num) {
+                puzzle[r][c] = num;
+                selectedCell.innerText = num;
+                selectedCell.classList.remove('wrong');
+                checkWinCondition();
+            } else {
+                selectedCell.innerText = num;
+                selectedCell.classList.add('wrong');
+                
+                if (gameMode === "Lives Mode") {
+                    livesLeft--;
+                    updateHUD();
+                    if (livesLeft <= 0) {
+                        clearInterval(timerInterval);
+                        triggerTerminalSequence(false, "SYSTEM FAULT: Integrity link severed. Out of security credentials.");
+                    }
+                }
+            }
+        }
+
+        function updateHUD() {
+            const statusSpan = document.getElementById('hud-status');
+            if (gameMode === "Classic") {
+                let m = Math.floor(timeRemainingOrElapsed / 60).toString().padStart(2, '0');
+                let s = (timeRemainingOrElapsed % 60).toString().padStart(2, '0');
+                statusSpan.innerText = `SYS_TIME: ${m}:${s}`;
+            } else if (gameMode === "Time Attack") {
+                let m = Math.floor(timeRemainingOrElapsed / 60).toString().padStart(2, '0');
+                let s = (timeRemainingOrElapsed % 60).toString().padStart(2, '0');
+                statusSpan.innerText = `OVERCLOCK: ${m}:${s}`;
+            } else if (gameMode === "Lives Mode") {
+                statusSpan.innerText = `INTEGRITY: ${"▲".repeat(livesLeft)}${"▽".repeat(3-livesLeft)}`;
+            }
+        }
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            if (gameMode === "Time Attack") {
+                timeRemainingOrElapsed = difficulty === "Easy" ? 300 : (difficulty === "Medium" ? 480 : 600);
+            } else {
+                timeRemainingOrElapsed = 0;
+            }
+
+            updateHUD();
+
+            timerInterval = setInterval(() => {
+                if (gameMode === "Time Attack") {
+                    timeRemainingOrElapsed--;
+                    if (timeRemainingOrElapsed <= 0) {
+                        clearInterval(timerInterval);
+                        updateHUD();
+                        triggerTerminalSequence(false, "TIMER EXPIRED: System locked down automatically.");
+                    }
+                } else {
+                    timeRemainingOrElapsed++;
+                }
+                if (gameMode !== "Lives Mode") updateHUD();
+            }, 1000);
+        }
+
+        function checkWinCondition() {
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    if (puzzle[r][c] !== solution[r][c]) return;
+                }
+            }
+            clearInterval(timerInterval);
+            triggerTerminalSequence(true, "ACCESS GRANTED: Security sequence decoded successfully.");
+        }
+
+        function startGame() {
+            gameMode = document.getElementById('mode-select').value;
+            difficulty = document.getElementById('diff-select').value;
+            livesLeft = 3;
+
+            document.getElementById('hud-mode').innerText = `MODE: ${gameMode.toUpperCase()}`;
+            document.getElementById('setup-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+
+            generatePuzzle();
+            buildUIBoard();
+            startTimer();
+        }
+
+        function quitGame() {
+            clearInterval(timerInterval);
+            document.getElementById('setup-screen').classList.remove('hidden');
+            document.getElementById('game-screen').classList.add('hidden');
+        }
+
+        /* Matrix Animation Processing Engine */
+        function triggerTerminalSequence(isWin, statusText) {
+            const overlay = document.getElementById('matrix-overlay');
+            const title = document.getElementById('overlay-title');
+            const desc = document.getElementById('overlay-desc');
+            
+            // Set up Text
+            if (isWin) {
+                title.innerText = "ACCESS GRANTED WELCOME TO THE MAINFRAME BITCOIN TERMINAL";
+                title.className = "overlay-title win";
+                desc.style.color = "var(--matrix-green)";
+            } else {
+                title.innerText = "SYSTEM LOCKDOWN";
+                title.className = "overlay-title lose";
+                desc.style.color = "var(--wrong-text)";
+            }
+            desc.innerText = statusText;
+            
+            // Unhide overlay screen
+            overlay.classList.remove('hidden');
+            
+            // Handle Canvas Sizing
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            const fontSize = 16;
+            const columnsCount = Math.floor(canvas.width / fontSize);
+            columns = Array(columnsCount).fill(1);
+            
+            clearInterval(matrixInterval);
+            matrixInterval = setInterval(() => drawMatrixRain(isWin), 33);
+        }
+
+        function drawMatrixRain(isWin) {
+            // Fade effect to retain stream trails
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.06)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Set rain configuration base colors
+            ctx.font = '16px monospace';
+            
+            for (let i = 0; i < columns.length; i++) {
+                const text = chars[Math.floor(Math.random() * chars.length)];
+                const x = i * 16;
+                const y = columns[i] * 16;
+                
+                // Top drop character is highlighted white, trailing turns color specific
+                if (Math.random() > 0.98) {
+                    ctx.fillStyle = '#fff';
+                } else {
+                    ctx.fillStyle = isWin ? '#00ff41' : '#ff3333';
+                }
+                
+                ctx.fillText(text, x, y);
+                
+                if (y > canvas.height && Math.random() > 0.975) {
+                    columns[i] = 0;
+                }
+                columns[i]++;
+            }
+        }
+
+        function dismissOverlay() {
+            clearInterval(matrixInterval);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('matrix-overlay').classList.add('hidden');
+            quitGame();
+        }
+
+        // Adjust canvas layout cleanly on viewport dimension switches
+        window.addEventListener('resize', () => {
+            if (!document.getElementById('matrix-overlay').classList.contains('hidden')) {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                columns = Array(Math.floor(canvas.width / 16)).fill(1);
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (!document.getElementById('matrix-overlay').classList.contains('hidden')) {
+                dismissOverlay();
+                return;
+            }
+            if (e.key >= '1' && e.key <= '9') pressNumber(parseInt(e.key));
+            if (e.key === 'Backspace' || e.key === 'Delete') pressNumber(0);
+        });
+    </script>
+</body>
+</html>

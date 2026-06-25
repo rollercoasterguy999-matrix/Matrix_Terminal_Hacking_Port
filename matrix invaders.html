@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix_Invaders_Defense.exe</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #010402;
+            color: #00ff41;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        h1 {
+            margin: 0 0 5px 0;
+            font-size: 3.5vh;
+            letter-spacing: 3px;
+            text-shadow: 0 0 8px #00ff41;
+            text-align: center;
+        }
+
+        #game-container {
+            position: relative;
+            border: 2px solid #00ff41;
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.25);
+            background: #000;
+            max-height: 80vh;
+            max-width: 95vw;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            display: block;
+            max-height: 80vh;
+            max-width: 100%;
+            object-fit: contain;
+        }
+
+        /* CRT Scanline Overlay */
+        #game-container::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%);
+            z-index: 2;
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 14px;
+            z-index: 5;
+            text-shadow: 0 0 5px #000;
+        }
+
+        #screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        .overlay-title {
+            font-size: 24px;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .overlay-title.start { color: #00ff41; text-shadow: 0 0 15px #00ff41; }
+        .overlay-title.over { color: #ff3333; text-shadow: 0 0 15px #ff3333; }
+
+        .overlay-sub {
+            font-size: 13px;
+            color: #ffffff;
+            opacity: 0.8;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <h1>[ FIREWALL_DEFENDER.SYS ]</h1>
+
+    <div id="game-container">
+        <canvas id="invadersCanvas" width="600" height="500"></canvas>
+        
+        <div id="ui-layer">
+            <span id="score-display">THREATS_PURGED: 0</span>
+        </div>
+
+        <div id="screen-overlay" onclick="startGame()">
+            <div id="overlay-main-text" class="overlay-title start">BOOT_DEFENSE_PROBE</div>
+            <div id="overlay-sub-text" class="overlay-sub">
+                LEFT/RIGHT ARROWS or A/D to Move<br>
+                SPACEBAR to Deploy Anti-Malware Patches
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('invadersCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let gameState = "START";
+        let score = 0;
+        let animationFrameId = null;
+
+        const player = {
+            x: canvas.width / 2 - 15,
+            y: canvas.height - 40,
+            width: 30,
+            height: 20,
+            speed: 6,
+            movingLeft: false,
+            movingRight: false
+        };
+
+        let patches = []; // Player projectiles
+        let invaders = []; // Enemy tracking matrices
+        let invaderSpeed = 1;
+        let invaderDirection = 1; // 1 = Right, -1 = Left
+        let invaderDropAmount = 15;
+
+        // Background digital matrix rain streams
+        let matrixDrops = [];
+        const chars = "0123456789日ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱ";
+        for (let i = 0; i < 20; i++) {
+            matrixDrops.push({ x: i * 30, y: Math.random() * canvas.height, speed: Math.random() * 1.5 + 0.5 });
+        }
+
+        // Mapping Control Events
+        window.addEventListener('keydown', (e) => {
+            if (gameState !== "PLAYING") return;
+
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+                player.movingLeft = true;
+            } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                player.movingRight = true;
+            } else if (e.key === ' ') {
+                e.preventDefault();
+                firePatch();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') player.movingLeft = false;
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') player.movingRight = false;
+        });
+
+        function startGame() {
+            if (gameState === "START" || gameState === "GAMEOVER") {
+                score = 0;
+                invaderSpeed = 1;
+                invaderDirection = 1;
+                patches = [];
+                document.getElementById('score-display').innerText = `THREATS_PURGED: ${score}`;
+                player.x = canvas.width / 2 - 15;
+                spawnInvaders();
+                gameState = "PLAYING";
+                document.getElementById('screen-overlay').classList.add('hidden');
+                loop();
+            }
+        }
+
+        function spawnInvaders() {
+            invaders = [];
+            const rows = 4;
+            const cols = 8;
+            const startX = 60;
+            const startY = 60;
+            const spacingX = 55;
+            const spacingY = 40;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    invaders.push({
+                        x: startX + c * spacingX,
+                        y: startY + r * spacingY,
+                        width: 35,
+                        height: 25,
+                        bit: Math.random() > 0.5 ? "1" : "0"
+                    });
+                }
+            }
+        }
+
+        function firePatch() {
+            // Rate limiter: check if too many packets are outstanding
+            if (patches.length < 3) {
+                patches.push({
+                    x: player.x + player.width / 2 - 2,
+                    y: player.y - 6,
+                    width: 4,
+                    height: 10,
+                    speed: 7
+                });
+            }
+        }
+
+        function triggerGameOver(success = false) {
+            gameState = "GAMEOVER";
+            cancelAnimationFrame(animationFrameId);
+            
+            const title = document.getElementById('overlay-main-text');
+            const sub = document.getElementById('overlay-sub-text');
+
+            if (success) {
+                title.innerText = "BUFFER_SECURED_CLEAN";
+                title.className = "overlay-title start";
+                sub.innerHTML = `ALL MALWARE SIGNATURES DELETED.<br>CLICK TO INJECT NEXT PATROL REBOOT.`;
+            } else {
+                title.innerText = "ROOT_TERMINAL_OVERRIDDEN.ERR";
+                title.className = "overlay-title over";
+                sub.innerHTML = `MAINFRAME INTRUSION TOTAL.<br>BUGS PURGED: ${score}<br>CLICK TO SYSTEM RESTORE`;
+            }
+            document.getElementById('screen-overlay').classList.remove('hidden');
+        }
+
+        // Logic framework process runner step
+        function update() {
+            // Animate backgrounds codes
+            for (let drop of matrixDrops) {
+                drop.y += drop.speed;
+                if (drop.y > canvas.height) drop.y = -20;
+            }
+
+            if (gameState !== "PLAYING") return;
+
+            // Move Player Cursor
+            if (player.movingLeft && player.x > 0) player.x -= player.speed;
+            if (player.movingRight && player.x < canvas.width - player.width) player.x += player.speed;
+
+            // Move Player Patches
+            for (let i = patches.length - 1; i >= 0; i--) {
+                let p = patches[i];
+                p.y -= p.speed;
+                if (p.y < 0) {
+                    patches.splice(i, 1);
+                }
+            }
+
+            // Move Enemy Invaders Matrix
+            let hitWall = false;
+            for (let inv of invaders) {
+                inv.x += inv0Speed = invaderSpeed * invaderDirection;
+                if (inv.x <= 10 || inv.x + inv.width >= canvas.width - 10) {
+                    hitWall = true;
+                }
+            }
+
+            if (hitWall) {
+                invaderDirection *= -1;
+                for (let inv of invaders) {
+                    inv.y += invaderDropAmount;
+                    // Terminal compromised if bugs breach lower boundary threshold
+                    if (inv.y + inv.height >= player.y) {
+                        triggerGameOver(false);
+                        return;
+                    }
+                }
+            }
+
+            // Hit-Test Evaluation Matrix (Patches vs Invaders)
+            outerLoop: for (let i = patches.length - 1; i >= 0; i--) {
+                let p = patches[i];
+                for (let j = invaders.length - 1; j >= 0; j--) {
+                    let inv = invaders[j];
+                    
+                    if (p.x < inv.x + inv.width && p.x + p.width > inv.x &&
+                        p.y < inv.y + inv.height && p.y + p.height > inv.y) {
+                        
+                        // Hit detected
+                        invaders.splice(j, 1);
+                        patches.splice(i, 1);
+                        score += 25;
+                        document.getElementById('score-display').innerText = `THREATS_PURGED: ${score}`;
+
+                        // Check Level Clearance Win condition
+                        if (invaders.length === 0) {
+                            // Boost speed and respawn next loop wave
+                            invaderSpeed += 0.5;
+                            spawnInvaders();
+                        }
+                        break outerLoop;
+                    }
+                }
+            }
+        }
+
+        // Master Frame Visual Canvas Painter
+        function draw() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Matrix background stream codes rendering
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.04)';
+            ctx.font = '14px monospace';
+            for (let drop of matrixDrops) {
+                let char = chars[Math.floor(Math.random() * chars.length)];
+                ctx.fillText(char, drop.x, drop.y);
+            }
+
+            // Draw Decryption Cursor (Player Model)
+            if (gameState !== "GAMEOVER") {
+                ctx.save();
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = '#00ff41';
+                ctx.font = 'bold 24px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText("^", player.x + player.width / 2, player.y + player.height / 2);
+                ctx.restore();
+            }
+
+            // Draw Anti-Malware Patch Blocks
+            ctx.fillStyle = '#00ff41';
+            for (let p of patches) {
+                ctx.fillRect(p.x, p.y, p.width, p.height);
+            }
+
+            // Draw Invader Malware Nodes
+            for (let inv of invaders) {
+                ctx.fillStyle = '#000000';
+                ctx.strokeStyle = '#ff3333';
+                ctx.lineWidth = 1.5;
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = '#ff3333';
+                ctx.fillRect(inv.x, inv.y, inv.width, inv.height);
+                ctx.strokeRect(inv.x, inv.y, inv.width, inv.height);
+
+                // Binary threat character inside node
+                ctx.fillStyle = '#ff3333';
+                ctx.shadowBlur = 0;
+                ctx.font = '14px monospace';
+                ctx.fillText(inv.bit, inv.x + 13, inv.y + 17);
+            }
+            ctx.shadowBlur = 0;
+        }
+
+        function loop() {
+            update();
+            draw();
+            animationFrameId = requestAnimationFrame(loop);
+        }
+
+        // Draw initial blank state frame
+        draw();
+    </script>
+</body>
+</html>

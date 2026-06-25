@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix_Chess_Core.exe</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #020503;
+            color: #00ff41;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        h1 {
+            margin: 0 0 15px 0;
+            font-size: 22px;
+            letter-spacing: 4px;
+            text-shadow: 0 0 8px #00ff41;
+        }
+
+        #game-container {
+            position: relative;
+            border: 2px solid #00ff41;
+            box-shadow: 0 0 30px rgba(0, 255, 65, 0.2);
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: -35px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 14px;
+            text-shadow: 0 0 5px #000;
+        }
+
+        /* CRT Scanline Overlay */
+        #game-container::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            z-index: 2;
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui-layer">
+            <span id="turn-display">ACTIVE_OPERATIVE: WHITE (USER)</span>
+        </div>
+        <canvas id="chessCanvas" width="560" height="560"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('chessCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const size = 8;
+        const tileSize = canvas.width / size;
+
+        let selectedPiece = null;
+        let turn = 'W'; // 'W' for White, 'B' for Black
+        let validMoves = [];
+
+        // Matrix Background Streams
+        let matrixDrops = [];
+        const chars = "0123456789日ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱ";
+        for (let i = 0; i < 28; i++) {
+            matrixDrops.push({ x: i * 20, y: Math.random() * canvas.height, speed: Math.random() * 1.5 + 0.5 });
+        }
+
+        // Unicode characters for classic chess pieces
+        const piecesSymbols = {
+            'R': '♜', 'N': '♞', 'B': '♝', 'Q': '♛', 'K': '♚', 'P': '♟',
+            'r': '♖', 'n': '♘', 'b': '♗', 'q': '♕', 'k': '♔', 'p': '♙'
+        };
+
+        // Standard Chess Initialization Matrix Layout
+        // Uppercase = Black, Lowercase = White
+        let board = [
+            ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'],
+            ['P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'],
+            ['.', '.', '.', '.', '.', '.', '.', '.'],
+            ['.', '.', '.', '.', '.', '.', '.', '.'],
+            ['.', '.', '.', '.', '.', '.', '.', '.'],
+            ['.', '.', '.', '.', '.', '.', '.', '.'],
+            ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
+            ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r']
+        ];
+
+        canvas.addEventListener('mousedown', handleGridClick);
+
+        function handleGridClick(e) {
+            const rect = canvas.getBoundingClientRect();
+            const col = Math.floor((e.clientX - rect.left) / tileSize);
+            const row = Math.floor((e.clientY - rect.top) / tileSize);
+
+            if (selectedPiece) {
+                // Attempt to execute move destination
+                if (validMoves.some(m => m.r === row && m.c === col)) {
+                    board[row][col] = board[selectedPiece.r][selectedPiece.c];
+                    board[selectedPiece.r][selectedPiece.c] = '.';
+                    
+                    // Toggle execution state turn
+                    turn = turn === 'W' ? 'B' : 'W';
+                    document.getElementById('turn-display').innerText = `ACTIVE_OPERATIVE: ${turn === 'W' ? 'WHITE (USER)' : 'BLACK (SYSTEM)'}`;
+                }
+                selectedPiece = null;
+                validMoves = [];
+            } else {
+                // Select a piece matching current player alignment
+                const target = board[row][col];
+                if (target !== '.') {
+                    const isWhitePiece = target === target.toLowerCase();
+                    if ((turn === 'W' && isWhitePiece) || (turn === 'B' && !isWhitePiece)) {
+                        selectedPiece = { r: row, c: col };
+                        generateBasicMoves(row, col);
+                    }
+                }
+            }
+        }
+
+        // Basic structural movement path generators (Skips complete check/pins filters for execution simplicity)
+        function generateBasicMoves(r, c) {
+            validMoves = [];
+            const piece = board[r][c];
+            const isWhite = piece === piece.toLowerCase();
+            const type = piece.toUpperCase();
+
+            // Pawn directional math logic
+            if (type === 'P') {
+                const dir = isWhite ? -1 : 1;
+                const startRow = isWhite ? 6 : 1;
+                
+                if (r + dir >= 0 && r + dir < 8 && board[r + dir][c] === '.') {
+                    validMoves.push({ r: r + dir, c: c });
+                    if (r === startRow && board[r + dir * 2][c] === '.') {
+                        validMoves.push({ r: r + dir * 2, c: c });
+                    }
+                }
+                // Pawn standard cross takes
+                for (let dc of [-1, 1]) {
+                    if (c + dc >= 0 && c + dc < 8 && r + dir >= 0 && r + dir < 8) {
+                        const target = board[r + dir][c + dc];
+                        if (target !== '.' && (isWhite ? target === target.toUpperCase() : target === target.toLowerCase())) {
+                            validMoves.push({ r: r + dir, c: c + dc });
+                        }
+                    }
+                }
+            }
+
+            // Linear Sliding structures (Rooks, Bishops, Queens)
+            if (type === 'R' || type === 'Q' || type === 'B') {
+                const directions = [];
+                if (type === 'R' || type === 'Q') directions.push({r:1,c:0}, {r:-1,c:0}, {r:0,c:1}, {r:0,c:-1});
+                if (type === 'B' || type === 'Q') directions.push({r:1,c:1}, {r:1,c:-1}, {r:-1,c:1}, {r:-1,c:-1});
+
+                for (let d of directions) {
+                    let step = 1;
+                    while (true) {
+                        let nr = r + d.r * step;
+                        let nc = c + d.c * step;
+                        if (nr < 0 || nr >= 8 || nc < 0 || nc >= 8) break;
+
+                        const target = board[nr][nc];
+                        if (target === '.') {
+                            validMoves.push({ r: nr, c: nc });
+                        } else {
+                            const isTargetWhite = target === target.toLowerCase();
+                            if (isWhite !== isTargetWhite) validMoves.push({ r: nr, c: nc });
+                            break;
+                        }
+                        step++;
+                    }
+                }
+            }
+
+            // Knight jumps calculations
+            if (type === 'N') {
+                const jumps = [{r:2,c:1},{r:2,c:-1},{r:-2,c:1},{r:-2,c:-1},{r:1,c:2},{r:1,c:-2},{r:-1,c:2},{r:-1,c:-2}];
+                for (let j of jumps) {
+                    let nr = r + j.r, nc = c + j.c;
+                    if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        const target = board[nr][nc];
+                        if (target === '.' || (isWhite !== (target === target.toLowerCase()))) {
+                            validMoves.push({ r: nr, c: nc });
+                        }
+                    }
+                }
+            }
+
+            // King single step paths
+            if (type === 'K') {
+                for (let dr = -1; dr <= 1; dr++) {
+                    for (let dc = -1; dc <= 1; dc++) {
+                        if (dr === 0 && dc === 0) continue;
+                        let nr = r + dr, nc = c + dc;
+                        if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                            const target = board[nr][nc];
+                            if (target === '.' || (isWhite !== (target === target.toLowerCase()))) {
+                                validMoves.push({ r: nr, c: nc });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        function update() {
+            // Animate background matrix stream bits behind board blocks
+            for (let drop of matrixDrops) {
+                drop.y += drop.speed;
+                if (drop.y > canvas.height) {
+                    drop.y = -20;
+                    drop.speed = Math.random() * 1.5 + 0.5;
+                }
+            }
+        }
+
+        function draw() {
+            // Base layer terminal fill
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Matrix background stream codes rendering
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.07)';
+            ctx.font = '14px monospace';
+            for (let drop of matrixDrops) {
+                let char = chars[Math.floor(Math.random() * chars.length)];
+                ctx.fillText(char, drop.x, drop.y);
+            }
+
+            // Render Chess grid frames
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    // Alternating terminal squares grid styling
+                    if ((r + c) % 2 === 0) {
+                        ctx.fillStyle = 'rgba(0, 255, 65, 0.04)';
+                    } else {
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                    }
+                    ctx.fillRect(c * tileSize, r * tileSize, tileSize, tileSize);
+
+                    // Matrix board node wire grid lines
+                    ctx.strokeStyle = 'rgba(0, 255, 65, 0.15)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(c * tileSize, r * tileSize, tileSize, tileSize);
+
+                    // Highlight Active selected block segment tracking
+                    if (selectedPiece && selectedPiece.r === r && selectedPiece.c === c) {
+                        ctx.fillStyle = 'rgba(0, 255, 65, 0.25)';
+                        ctx.fillRect(c * tileSize, r * tileSize, tileSize, tileSize);
+                    }
+
+                    // Highlight prospective safe landing trajectories
+                    if (validMoves.some(m => m.r === r && m.c === c)) {
+                        ctx.fillStyle = 'rgba(0, 255, 65, 0.15)';
+                        ctx.fillRect(c * tileSize, r * tileSize, tileSize, tileSize);
+                        ctx.strokeStyle = '#00ff41';
+                        ctx.lineWidth = 1.5;
+                        ctx.strokeRect(c * tileSize + 4, r * tileSize + 4, tileSize - 8, tileSize - 8);
+                    }
+
+                    // Render Pieces Graphics overlay data
+                    const item = board[r][c];
+                    if (item !== '.') {
+                        const isWhitePiece = item === item.toLowerCase();
+                        
+                        ctx.save();
+                        ctx.font = `${tileSize * 0.65}px Arial`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        
+                        if (isWhitePiece) {
+                            // User units: Pure glowing neon green
+                            ctx.fillStyle = '#00ff41';
+                            ctx.shadowBlur = 10;
+                            ctx.shadowColor = '#00ff41';
+                        } else {
+                            // System units: Dim, darker green matrix code tracking
+                            ctx.fillStyle = '#004411';
+                            ctx.strokeStyle = '#00aa33';
+                            ctx.lineWidth = 1;
+                            ctx.strokeText(piecesSymbols[item], c * tileSize + tileSize / 2, r * tileSize + tileSize / 2);
+                        }
+
+                        // Adjust focus layer when selected
+                        if (selectedPiece && selectedPiece.r === r && selectedPiece.c === c) {
+                            ctx.fillStyle = '#ffffff';
+                        }
+
+                        ctx.fillText(piecesSymbols[item], c * tileSize + tileSize / 2, r * tileSize + tileSize / 2);
+                        ctx.restore();
+                    }
+                }
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>

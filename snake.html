@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix_Snake_Virus.exe</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #010402;
+            color: #00ff41;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 22px;
+            letter-spacing: 3px;
+            text-shadow: 0 0 8px #00ff41;
+        }
+
+        #game-container {
+            position: relative;
+            border: 2px solid #00ff41;
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.25);
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* Scanline Overlay Grid */
+        #game-container::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%);
+            z-index: 2;
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 16px;
+            z-index: 5;
+            text-shadow: 0 0 5px #000;
+        }
+
+        #screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        .overlay-title {
+            font-size: 26px;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        
+        .overlay-title.start { color: #00ff41; text-shadow: 0 0 15px #00ff41; }
+        .overlay-title.over { color: #ff3333; text-shadow: 0 0 15px #ff3333; }
+
+        .overlay-sub {
+            font-size: 14px;
+            color: #ffffff;
+            opacity: 0.8;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <h1>[ SYSTEM.WORM_VIRUS.EXE ]</h1>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="500" height="500"></canvas>
+        
+        <div id="ui-layer">
+            <span id="score-display">INJECTED_BITS: 0</span>
+            <span id="best-display">MAX_LENGTH: 0</span>
+        </div>
+
+        <div id="screen-overlay" onclick="startGame()">
+            <div id="overlay-main-text" class="overlay-title start">DEPLOY_MALWARE</div>
+            <div id="overlay-sub-text" class="overlay-sub">USE ARROW KEYS OR WASD TO STEER</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Grid parameters
+        const gridSize = 20;
+        const tileCount = canvas.width / gridSize;
+
+        // Game state engine
+        let gameState = "START";
+        let score = 0;
+        let highscore = 0;
+        let gameLoopInterval = null;
+        let frameDelay = 160; // game speed (lower is faster)
+
+        // Snake core array
+        let snake = [];
+        let direction = { x: 1, y: 0 };
+        let nextDirection = { x: 1, y: 0 };
+
+        // Target code packet node
+        let food = { x: 0, y: 0, bit: "1" };
+
+        // Background decorative digital elements
+        let matrixRain = [];
+        const chars = "0123456789日ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱ";
+
+        // Pre-build digital grid dust positions
+        for (let i = 0; i < 25; i++) {
+            matrixRain.push({
+                x: Math.floor(Math.random() * tileCount) * gridSize,
+                y: Math.random() * canvas.height,
+                speed: Math.random() * 1.5 + 0.5,
+                char: chars[Math.floor(Math.random() * chars.length)]
+            });
+        }
+
+        // Global Event Handlers for Navigation
+        window.addEventListener('keydown', (e) => {
+            if (gameState !== "PLAYING" && (e.key === ' ' || e.key === 'Enter' || e.key.includes('Arrow') || ['w','a','s','d','W','A','S','D'].includes(e.key))) {
+                startGame();
+                return;
+            }
+
+            switch (e.key) {
+                case 'ArrowUp':
+                case 'w':
+                case 'W':
+                    if (direction.y !== 1) nextDirection = { x: 0, y: -1 };
+                    break;
+                case 'ArrowDown':
+                case 's':
+                case 'S':
+                    if (direction.y !== -1) nextDirection = { x: 0, y: 1 };
+                    break;
+                case 'ArrowLeft':
+                case 'a':
+                case 'A':
+                    if (direction.x !== 1) nextDirection = { x: -1, y: 0 };
+                    break;
+                case 'ArrowRight':
+                case 'd':
+                case 'D':
+                    if (direction.x !== -1) nextDirection = { x: 1, y: 0 };
+                    break;
+            }
+        });
+
+        function startGame() {
+            if (gameState === "START" || gameState === "GAMEOVER") {
+                resetGame();
+                gameState = "PLAYING";
+                document.getElementById('screen-overlay').classList.add('hidden');
+                clearInterval(gameLoopInterval);
+                gameLoopInterval = setInterval(gameTick, frameDelay);
+            }
+        }
+
+        function resetGame() {
+            // Spawn starting snake at center horizontal track
+            snake = [
+                { x: 10, y: 12 },
+                { x: 9, y: 12 },
+                { x: 8, y: 12 }
+            ];
+            direction = { x: 1, y: 0 };
+            nextDirection = { x: 1, y: 0 };
+            score = 0;
+            document.getElementById('score-display').innerText = `INJECTED_BITS: ${score}`;
+            spawnFood();
+        }
+
+        function spawnFood() {
+            food.x = Math.floor(Math.random() * tileCount);
+            food.y = Math.floor(Math.random() * tileCount);
+            food.bit = Math.random() > 0.5 ? "1" : "0";
+
+            // Make sure target doesn't spawn inside the current malware chain
+            for (let cell of snake) {
+                if (cell.x === food.x && cell.y === food.y) {
+                    spawnFood();
+                    break;
+                }
+            }
+        }
+
+        function triggerGameOver() {
+            gameState = "GAMEOVER";
+            clearInterval(gameLoopInterval);
+            document.getElementById('overlay-main-text').innerText = `CORRUPTION_HALTED`;
+            document.getElementById('overlay-main-text').className = "overlay-title over";
+            document.getElementById('overlay-sub-text').innerText = `BITS INJECTED: ${score} - CLICK TO RE-DEPLOY`;
+            document.getElementById('screen-overlay').classList.remove('hidden');
+        }
+
+        // Logic processing tick execution
+        function gameTick() {
+            direction = nextDirection;
+
+            // Calculate new position for the head node
+            const head = {
+                x: snake[0].x + direction.x,
+                y: snake[0].y + direction.y
+            };
+
+            // Firewall perimeter crash checking
+            if (head.x < 0 || head.x >= tileCount || head.y < 0 || head.y >= tileCount) {
+                triggerGameOver();
+                return;
+            }
+
+            // Self-intersection analysis checks
+            for (let i = 0; i < snake.length; i++) {
+                if (snake[i].x === head.x && snake[i].y === head.y) {
+                    triggerGameOver();
+                    return;
+                }
+            }
+
+            // Move the head into position
+            snake.unshift(head);
+
+            // Check if head node has consumed target code payload
+            if (head.x === food.x && head.y === food.y) {
+                score++;
+                document.getElementById('score-display').innerText = `INJECTED_BITS: ${score}`;
+                if (score > highscore) {
+                    highscore = score;
+                    document.getElementById('best-display').innerText = `MAX_LENGTH: ${highscore}`;
+                }
+                spawnFood();
+            } else {
+                // Remove the tail if it didn't eat data
+                snake.pop();
+            }
+
+            draw();
+        }
+
+        // Canvas UI drawing rendering sequences
+        function draw() {
+            // 1. Draw base frame
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 2. Animate background ambient terminal code rain
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.05)';
+            ctx.font = '14px monospace';
+            for (let drop of matrixRain) {
+                ctx.fillText(drop.char, drop.x, drop.y);
+                drop.y += drop.speed;
+                if (drop.y > canvas.height) {
+                    drop.y = -20;
+                    drop.x = Math.floor(Math.random() * tileCount) * gridSize;
+                    drop.char = chars[Math.floor(Math.random() * chars.length)];
+                }
+            }
+
+            // 3. Draw Target Data Node payload (glowing binary digit)
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = '#00ff41';
+            ctx.font = 'bold 16px monospace';
+            ctx.fillText(food.bit, (food.x * gridSize) + 6, (food.y * gridSize) + 16);
+            ctx.shadowBlur = 0; // Clear processing filters canvas trace glow
+
+            // 4. Draw the Code Virus Snake chain
+            for (let i = 0; i < snake.length; i++) {
+                let cell = snake[i];
+                
+                if (i === 0) {
+                    // Head node style
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(cell.x * gridSize + 1, cell.y * gridSize + 1, gridSize - 2, gridSize - 2);
+                    ctx.strokeStyle = '#00ff41';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(cell.x * gridSize + 1, cell.y * gridSize + 1, gridSize - 2, gridSize - 2);
+                } else {
+                    // Body nodes style - fading out dynamically down the segment chain length
+                    let alpha = Math.max(0.2, 1 - (i / snake.length));
+                    ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
+                    ctx.fillRect(cell.x * gridSize + 2, cell.y * gridSize + 2, gridSize - 4, gridSize - 4);
+                    
+                    // Inside matrix styling grid details
+                    if (i % 3 === 0) {
+                        ctx.fillStyle = '#000';
+                        ctx.fillRect(cell.x * gridSize + 8, cell.y * gridSize + 8, 4, 4);
+                    }
+                }
+            }
+        }
+
+        // Run an initial draw to populate the starting aesthetic grid layout screen
+        draw();
+    </script>
+</body>
+</html>

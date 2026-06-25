@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Dash Neo</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #050508;
+            color: #00ffcc;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+            letter-spacing: 4px;
+            text-shadow: 0 0 10px #00ffcc;
+        }
+
+        #game-container {
+            position: relative;
+            border: 3px solid #00ffcc;
+            box-shadow: 0 0 20px rgba(0, 255, 204, 0.3);
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            right: 15px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 16px;
+            pointer-events: none;
+            text-shadow: 0 0 5px #000;
+        }
+
+        #screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.75);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        .overlay-title {
+            font-size: 32px;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        
+        .overlay-title.start { color: #00ffcc; text-shadow: 0 0 15px #00ffcc; }
+        .overlay-title.over { color: #ff3366; text-shadow: 0 0 15px #ff3366; }
+
+        .overlay-sub {
+            font-size: 14px;
+            color: #ffffff;
+            opacity: 0.8;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <h1>[ NEON_DASH.EXE ]</h1>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+        
+        <div id="ui-layer">
+            <span id="score-display">ATTEMPT: 1</span>
+            <span id="best-display">BEST: 0m</span>
+        </div>
+
+        <div id="screen-overlay" onclick="handleOverlayClick()">
+            <div id="overlay-main-text" class="overlay-title start">CLICK TO INITIALIZE</div>
+            <div id="overlay-sub-text" class="overlay-sub">PRESS SPACEBAR OR CLICK TO JUMP</div>
+        </div>
+    </div>
+
+    <script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Game Configuration & State Variables
+let gameState = "START"; // START, PLAYING, GAMEOVER
+let score = 0;
+let highscore = 0;
+let attemptCount = 1;
+let gameSpeed = 6;
+const maxSpeed = 13;
+const gravity = 0.6;
+const groundY = 320;
+
+// Entities arrays
+let obstacles = [];
+let particles = [];
+let spawnTimer = 0; // Added a guaranteed timer for spawning
+
+// Player Object Setup
+const player = {
+    x: 120,
+    y: groundY - 30,
+    width: 30,
+    height: 30,
+    vy: 0,
+    isGrounded: true,
+    jumpForce: -10,
+    rotation: 0,
+    color: '#00ffcc',
+    secondaryColor: '#003322'
+};
+
+// Input Event Listeners
+window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+        e.preventDefault();
+        triggerJump();
+    }
+});
+
+canvas.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    triggerJump();
+});
+
+function handleOverlayClick() {
+    if (gameState === "START" || gameState === "GAMEOVER") {
+        resetGame();
+        gameState = "PLAYING";
+        document.getElementById('screen-overlay').classList.add('hidden');
+    }
+}
+
+function triggerJump() {
+    if (gameState === "PLAYING" && player.isGrounded) {
+        player.vy = player.jumpForce;
+        player.isGrounded = false;
+        createParticles(player.x + 15, player.y + 30, '#00ffcc', 8);
+    } else if (gameState === "START" || gameState === "GAMEOVER") {
+        handleOverlayClick();
+    }
+}
+
+// Particle System Factory
+function createParticles(x, y, color, count) {
+    for(let i=0; i<count; i++) {
+        particles.push({
+            x: x,
+            y: y,
+            vx: (Math.random() - 0.5) * 6 - (gameState === "PLAYING" ? gameSpeed * 0.3 : 0),
+            vy: (Math.random() - 0.5) * 6 - 2,
+            size: Math.random() * 4 + 2,
+            alpha: 1,
+            decay: Math.random() * 0.03 + 0.01,
+            color: color
+        });
+    }
+}
+
+// Obstacle Manager
+function spawnObstacle() {
+    spawnTimer++;
+    
+    // Force a spawn every 90 to 150 frames randomly
+    if (spawnTimer > 90 + Math.random() * 60) {
+        const types = ['single_spike', 'double_spike'];
+        const selectedType = types[Math.floor(Math.random() * types.length)];
+        
+        if (selectedType === 'single_spike') {
+            obstacles.push({ x: canvas.width, type: 'spike', width: 30, height: 32 });
+        } else if (selectedType === 'double_spike') {
+            obstacles.push({ x: canvas.width, type: 'spike_double', width: 60, height: 32 });
+        }
+        
+        spawnTimer = 0; // Reset countdown
+    }
+}
+
+function resetGame() {
+    obstacles = [];
+    particles = [];
+    player.y = groundY - player.height;
+    player.vy = 0;
+    player.isGrounded = true;
+    player.rotation = 0;
+    score = 0;
+    gameSpeed = 6;
+    spawnTimer = 0;
+    document.getElementById('score-display').innerText = `ATTEMPT: ${attemptCount}`;
+}
+
+function triggerGameOver() {
+    gameState = "GAMEOVER";
+    attemptCount++;
+    createParticles(player.x + 15, player.y + 15, '#ff3366', 25);
+    createParticles(player.x + 15, player.y + 15, '#ffffff', 15);
+    
+    document.getElementById('overlay-main-text').innerText = "CONNECTION TERMINATED";
+    document.getElementById('overlay-main-text').className = "overlay-title over";
+    document.getElementById('overlay-sub-text').innerText = `CRASH POINT: ${Math.floor(score)}m - CLICK TO REBOOT`;
+    document.getElementById('screen-overlay').classList.remove('hidden');
+}
+
+// Main Loop Game Calculations
+function update() {
+    if (gameState === "PLAYING") {
+        // Progression Scaling
+        score += 0.15;
+        if (gameSpeed < maxSpeed) gameSpeed += 0.001;
+
+        // Ground Check & Physics Loop
+        player.vy += gravity;
+        player.y += player.vy;
+
+        if (player.y >= groundY - player.height) {
+            player.y = groundY - player.height;
+            player.vy = 0;
+            player.isGrounded = true;
+            player.rotation = Math.round(player.rotation / (Math.PI / 2)) * (Math.PI / 2);
+        } else {
+            player.rotation += 0.09;
+        }
+
+        // Append and scroll roadblocks
+        spawnObstacle();
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            let obs = obstacles[i];
+            obs.x -= gameSpeed;
+
+            // Perfect box/triangle collision check approximations
+            let pLeft = player.x + 2;
+            let pRight = player.x + player.width - 2;
+            let pTop = player.y + 2;
+            let pBottom = player.y + player.height;
+
+            if (pRight > obs.x && pLeft < obs.x + obs.width) {
+                if (obs.type === 'spike' || obs.type === 'spike_double') {
+                    if (pBottom > groundY - obs.height + 4) {
+                        triggerGameOver();
+                    
+                    }
+                }
+            }
+
+            // Garbage collection of offscreen hazards
+            if (obs.x + obs.width < 0) {
+                obstacles.splice(i, 1);
+            }
+        }
+
+        if (score > highscore) {
+            highscore = score;
+            document.getElementById('best-display').innerText = `BEST: ${Math.floor(highscore)}m`;
+        }
+    }
+
+    // Move trailing particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= p.decay;
+        if (p.alpha <= 0) particles.splice(i, 1);
+    }
+}
+
+// Canvas Rendering Architecture
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw Background grid wires
+    ctx.strokeStyle = 'rgba(0, 255, 204, 0.05)';
+    ctx.lineWidth = 1;
+    let gridOffset = (gameState === "PLAYING") ? (score * gameSpeed) % 40 : 0;
+    for (let x = -gridOffset; x < canvas.width; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, groundY); ctx.stroke();
+    }
+
+    // Draw Ground platform
+    ctx.fillStyle = '#080812';
+    ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+    ctx.strokeStyle = '#00ffcc';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(0, groundY); ctx.lineTo(canvas.width, groundY); ctx.stroke();
+
+    // Draw Obstacles (Spikes / Polyblocks)
+    for (let obs of obstacles) {
+        if (obs.type === 'spike') {
+            ctx.fillStyle = '#ff3366';
+            ctx.beginPath();
+            ctx.moveTo(obs.x, groundY);
+            ctx.lineTo(obs.x + obs.width / 2, groundY - obs.height);
+            ctx.lineTo(obs.x + obs.width, groundY);
+            ctx.closePath(); ctx.fill();
+        } else if (obs.type === 'spike_double') {
+            ctx.fillStyle = '#ff3366';
+            for(let k = 0; k < 2; k++) {
+                let sx = obs.x + (k * 30);
+                ctx.beginPath();
+                ctx.moveTo(sx, groundY);
+                ctx.lineTo(sx + 15, groundY - obs.height);
+                ctx.lineTo(sx + 30, groundY);
+                ctx.closePath(); ctx.fill();
+            }
+        }
+    }
+
+    // Draw Active Particles
+    for (let p of particles) {
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, p.size, p.size);
+        ctx.restore();
+    }
+
+    // Draw Player Matrix Cube
+    if (gameState !== "GAMEOVER") {
+        ctx.save();
+        ctx.translate(player.x + player.width / 2, player.y + player.height / 2);
+        ctx.rotate(player.rotation);
+        
+        ctx.fillStyle = player.color;
+        ctx.fillRect(-player.width / 2, -player.height / 2, player.width, player.height);
+        
+        ctx.fillStyle = '#000';
+        ctx.fillRect(-10, -10, 20, 20);
+        ctx.fillStyle = player.color;
+        ctx.fillRect(-5, -5, 10, 10);
+        
+        ctx.restore();
+    }
+}
+
+// System Ticker Engine Loop Execution
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+loop();
+    </script>
+</body>
+</html>

@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix_Pong_Bit_Shifter.exe</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #010402;
+            color: #00ff41;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        h1 {
+            margin: 0 0 5px 0;
+            font-size: 3.5vh;
+            letter-spacing: 3px;
+            text-shadow: 0 0 8px #00ff41;
+            text-align: center;
+        }
+
+        #game-container {
+            position: relative;
+            border: 2px solid #00ff41;
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.25);
+            background: #000;
+            max-height: 80vh;
+            max-width: 95vw;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            display: block;
+            max-height: 80vh;
+            max-width: 100%;
+            object-fit: contain;
+        }
+
+        /* CRT Scanline Overlay */
+        #game-container::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%);
+            z-index: 2;
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 14px;
+            z-index: 5;
+            text-shadow: 0 0 5px #000;
+        }
+
+        #screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        .overlay-title {
+            font-size: 24px;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .overlay-title.start { color: #00ff41; text-shadow: 0 0 15px #00ff41; }
+        .overlay-title.over { color: #ff3333; text-shadow: 0 0 15px #ff3333; }
+
+        .overlay-sub {
+            font-size: 13px;
+            color: #ffffff;
+            opacity: 0.8;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <h1>[ BIT_SHIFTER.SYS ]</h1>
+
+    <div id="game-container">
+        <canvas id="pongCanvas" width="640" height="400"></canvas>
+        
+        <div id="ui-layer">
+            <span id="player-score">USER_PORT: 0</span>
+            <span id="ai-score">MAINFRAME_AI: 0</span>
+        </div>
+
+        <div id="screen-overlay" onclick="startGame()">
+            <div id="overlay-main-text" class="overlay-title start">ESTABLISH_LINK_SESSION</div>
+            <div id="overlay-sub-text" class="overlay-sub">
+                W/S Keys or UP/DOWN Arrows to Shift Port<br>
+                Intercept the Packet. Do Not Allow Memory Leak. First to 5 Wins.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('pongCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let gameState = "START";
+        let playerScore = 0;
+        let aiScore = 0;
+        let animationFrameId = null;
+
+        // Game components
+        const paddleWidth = 10;
+        const paddleHeight = 80;
+        const paddleSpeed = 6.5;
+
+        const player = { x: 20, y: canvas.height / 2 - paddleHeight / 2, score: 0 };
+        const ai = { x: canvas.width - 30, y: canvas.height / 2 - paddleHeight / 2, score: 0 };
+        
+        const ball = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            vx: 0,
+            vy: 0,
+            size: 14,
+            bitValue: "1"
+        };
+
+        // Key states
+        const keys = { up: false, down: false };
+
+        // Background digital matrix rain streams
+        let matrixDrops = [];
+        const chars = "0123456789日ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱ";
+        for (let i = 0; i < 22; i++) {
+            matrixDrops.push({ x: i * 30, y: Math.random() * canvas.height, speed: Math.random() * 1.5 + 0.5 });
+        }
+
+        // Mapping Control Events
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.up = true;
+            if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') keys.down = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.up = false;
+            if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') keys.down = false;
+        });
+
+        function startGame() {
+            if (gameState === "START" || gameState === "GAMEOVER") {
+                playerScore = 0;
+                aiScore = 0;
+                updateScoreUI();
+                player.y = canvas.height / 2 - paddleHeight / 2;
+                ai.y = canvas.height / 2 - paddleHeight / 2;
+                resetBall(1); // Serve towards player first
+                gameState = "PLAYING";
+                document.getElementById('screen-overlay').classList.add('hidden');
+                loop();
+            }
+        }
+
+        function resetBall(direction) {
+            ball.x = canvas.width / 2;
+            ball.y = canvas.height / 2;
+            // Generate standard initial velocity vector
+            ball.vx = direction * 4.5;
+            ball.vy = (Math.random() * 2 - 1) * 3;
+            ball.bitValue = Math.random() > 0.5 ? "1" : "0";
+        }
+
+        function updateScoreUI() {
+            document.getElementById('player-score').innerText = `USER_PORT: ${playerScore}`;
+            document.getElementById('ai-score').innerText = `MAINFRAME_AI: ${aiScore}`;
+        }
+
+        function triggerGameOver() {
+            gameState = "GAMEOVER";
+            cancelAnimationFrame(animationFrameId);
+            
+            const title = document.getElementById('overlay-main-text');
+            const sub = document.getElementById('overlay-sub-text');
+
+            if (playerScore >= 5) {
+                title.innerText = "MAINFRAME_OVERLOADED_SUCCESS";
+                title.className = "overlay-title start";
+                sub.innerHTML = `AI LINK SEVERED COMPLETELY.<br>CLICK TO INJECT REBOOT SESSION.`;
+            } else {
+                title.innerText = "LINK_TERMINATED_BY_HOST";
+                title.className = "overlay-title over";
+                sub.innerHTML = `USER BUFFER OVERRUN DETECTED.<br>CLICK TO TRY CORE EXTRAPOLATION.`;
+            }
+            document.getElementById('screen-overlay').classList.remove('hidden');
+        }
+
+        // Logic and Physics Updates
+        function update() {
+            // Animate backgrounds codes
+            for (let drop of matrixDrops) {
+                drop.y += drop.speed;
+                if (drop.y > canvas.height) drop.y = -20;
+            }
+
+            if (gameState !== "PLAYING") return;
+
+            // 1. Move Player Paddle
+            if (keys.up && player.y > 5) player.y -= paddleSpeed;
+            if (keys.down && player.y < canvas.height - paddleHeight - 5) player.y += paddleSpeed;
+
+            // 2. Simple Mainframe AI Paddle Tracking Logic
+            let aiTarget = ball.y - paddleHeight / 2;
+            // Introduce slight delay tracking mechanics to make it beatable
+            if (ai.y < aiTarget - 4) {
+                ai.y += paddleSpeed * 0.72;
+            } else if (ai.y > aiTarget + 4) {
+                ai.y -= paddleSpeed * 0.72;
+            }
+            // Clamp AI bounds
+            if (ai.y < 5) ai.y = 5;
+            if (ai.y > canvas.height - paddleHeight - 5) ai.y = canvas.height - paddleHeight - 5;
+
+            // 3. Move Data Packet Ball
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            // Bounce off upper and lower layout ceilings
+            if (ball.y <= 0 || ball.y >= canvas.height - ball.size) {
+                ball.vy *= -1;
+                ball.bitValue = ball.bitValue === "1" ? "0" : "1"; // Invert data packet on ping
+            }
+
+            // 4. Hit-Test Logic (Ball vs Paddles)
+            // Left Player Paddle Collision
+            if (ball.vx < 0 && ball.x <= player.x + paddleWidth && ball.x >= player.x) {
+                if (ball.y + ball.size >= player.y && ball.y <= player.y + paddleHeight) {
+                    ball.vx *= -1.08; // Slightly accelerate the packet to increase urgency
+                    // Distribute angle velocity based on deflection point displacement
+                    let relativeIntersectY = (player.y + (paddleHeight / 2)) - ball.y;
+                    ball.vy = -(relativeIntersectY / (paddleHeight / 2)) * 4.5;
+                    ball.bitValue = "1";
+                }
+            }
+
+            // Right AI Paddle Collision
+            if (ball.vx > 0 && ball.x + ball.size >= ai.x && ball.x + ball.size <= ai.x + paddleWidth) {
+                if (ball.y + ball.size >= ai.y && ball.y <= ai.y + paddleHeight) {
+                    ball.vx *= -1.08;
+                    let relativeIntersectY = (ai.y + (paddleHeight / 2)) - ball.y;
+                    ball.vy = -(relativeIntersectY / (paddleHeight / 2)) * 4.5;
+                    ball.bitValue = "0";
+                }
+            }
+
+            // 5. Scoring Conditions
+            if (ball.x < 0) {
+                aiScore++;
+                updateScoreUI();
+                if (aiScore >= 5) triggerGameOver();
+                else resetBall(1); // Serve to winner
+            } else if (ball.x > canvas.width) {
+                playerScore++;
+                updateScoreUI();
+                if (playerScore >= 5) triggerGameOver();
+                else resetBall(-1);
+            }
+        }
+
+        // Master Frame Visual Canvas Painter
+        function draw() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Matrix background stream codes rendering
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.04)';
+            ctx.font = '14px monospace';
+            for (let drop of matrixDrops) {
+                let char = chars[Math.floor(Math.random() * chars.length)];
+                ctx.fillText(char, drop.x, drop.y);
+            }
+
+            // Draw Net Divider Core Channel Vector
+            ctx.strokeStyle = 'rgba(0, 255, 65, 0.2)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 10]);
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset dash state
+
+            // Draw User Port Paddle (Left)
+            ctx.fillStyle = '#000000';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#00ff41';
+            ctx.fillRect(player.x, player.y, paddleWidth, paddleHeight);
+            ctx.strokeRect(player.x, player.y, paddleWidth, paddleHeight);
+
+            // Draw Mainframe AI Port Paddle (Right)
+            ctx.strokeStyle = '#00ff41';
+            ctx.fillRect(ai.x, ai.y, paddleWidth, paddleHeight);
+            ctx.strokeRect(ai.x, ai.y, paddleWidth, paddleHeight);
+
+            // Draw Moving Data Packet (Ball Character Matrix Element)
+            if (gameState !== "GAMEOVER") {
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 16px monospace';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                ctx.fillText(ball.bitValue, ball.x, ball.y);
+            }
+            ctx.shadowBlur = 0;
+        }
+
+        function loop() {
+            update();
+            draw();
+            animationFrameId = requestAnimationFrame(loop);
+        }
+
+        // Base framework initial frame setup paint
+        draw();
+    </script>
+</body>
+</html>

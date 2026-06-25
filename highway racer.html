@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix_Highway_Racer.exe</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #010402;
+            color: #00ff41;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 22px;
+            letter-spacing: 3px;
+            text-shadow: 0 0 8px #00ff41;
+        }
+
+        #game-container {
+            position: relative;
+            border: 2px solid #00ff41;
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.25);
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* CRT Scanline Overlay */
+        #game-container::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%);
+            z-index: 2;
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 15px;
+            z-index: 5;
+            text-shadow: 0 0 5px #000;
+        }
+
+        #screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        .overlay-title {
+            font-size: 26px;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        
+        .overlay-title.start { color: #00ff41; text-shadow: 0 0 15px #00ff41; }
+        .overlay-title.over { color: #ff3333; text-shadow: 0 0 15px #ff3333; }
+
+        .overlay-sub {
+            font-size: 14px;
+            color: #ffffff;
+            opacity: 0.8;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <h1>[ SYSTEM.OVERDRIVE_DRIVE.SYS ]</h1>
+
+    <div id="game-container">
+        <canvas id="racerCanvas" width="400" height="600"></canvas>
+        
+        <div id="ui-layer">
+            <span id="score-display">BANDWIDTH_KB: 0</span>
+            <span id="best-display">MAX_DOWNLOAD: 0</span>
+        </div>
+
+        <div id="screen-overlay" onclick="startGame()">
+            <div id="overlay-main-text" class="overlay-title start">JACK_IN_OVERDRIVE</div>
+            <div id="overlay-sub-text" class="overlay-sub">USE LEFT/RIGHT ARROWS OR A/D TO INTERCEPT</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('racerCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Highway parameters
+        const lanesCount = 3;
+        const laneWidth = canvas.width / lanesCount;
+
+        // Game engine configuration variables
+        let gameState = "START";
+        let score = 0;
+        let highscore = 0;
+        let speed = 7;
+        const maxSpeed = 16;
+
+        // Player asset metrics
+        const player = {
+            lane: 1, // Start middle lane (0=Left, 1=Middle, 2=Right)
+            x: 0,    // Managed programmatically during interpolation
+            y: canvas.height - 110,
+            width: 50,
+            height: 85,
+            targetX: 0
+        };
+
+        // Arrays containing environmental matrices
+        let obstacles = [];
+        let matrixDrops = [];
+        const chars = "0123456789日ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱ";
+        let spawnTimer = 0;
+        let roadLineOffset = 0;
+
+        // Populate system backdrop columns
+        for (let i = 0; i < 20; i++) {
+            matrixDrops.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                speed: Math.random() * 2 + 1,
+                char: chars[Math.floor(Math.random() * chars.length)]
+            });
+        }
+
+        // Snap starting coordinates
+        player.x = (player.lane * laneWidth) + (laneWidth / 2) - (player.width / 2);
+        player.targetX = player.x;
+
+        // Input Keyboard System Listeners
+        window.addEventListener('keydown', (e) => {
+            if (gameState !== "PLAYING") {
+                if (e.key === ' ' || e.key === 'Enter' || e.key.includes('Arrow') || ['w','a','s','d','A','D'].includes(e.key)) {
+                    startGame();
+                }
+                return;
+            }
+
+            if ((e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') && player.lane > 0) {
+                player.lane--;
+            }
+            if ((e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') && player.lane < lanesCount - 1) {
+                player.lane++;
+            }
+            player.targetX = (player.lane * laneWidth) + (laneWidth / 2) - (player.width / 2);
+        });
+
+        function startGame() {
+            if (gameState === "START" || gameState === "GAMEOVER") {
+                resetGame();
+                gameState = "PLAYING";
+                document.getElementById('screen-overlay').classList.add('hidden');
+            }
+        }
+
+        function resetGame() {
+            obstacles = [];
+            player.lane = 1;
+            player.x = (player.lane * laneWidth) + (laneWidth / 2) - (player.width / 2);
+            player.targetX = player.x;
+            score = 0;
+            speed = 7;
+            spawnTimer = 0;
+            document.getElementById('score-display').innerText = `BANDWIDTH_KB: ${score}`;
+        }
+
+        function triggerGameOver() {
+            gameState = "GAMEOVER";
+            document.getElementById('overlay-main-text').innerText = "DISCONNECTED.ERR";
+            document.getElementById('overlay-main-text').className = "overlay-title over";
+            document.getElementById('overlay-sub-text').innerText = `TOTAL DOWNLOAD: ${Math.floor(score)} KB - CLICK TO SYNC`;
+            document.getElementById('screen-overlay').classList.remove('hidden');
+        }
+
+        // Logic processing frame loops
+        function update() {
+            // Animate global rain background static layers
+            for (let drop of matrixDrops) {
+                drop.y += drop.speed + (gameState === "PLAYING" ? speed * 0.5 : 0);
+                if (drop.y > canvas.height) {
+                    drop.y = -20;
+                    drop.x = Math.random() * canvas.width;
+                    drop.char = chars[Math.floor(Math.random() * chars.length)];
+                }
+            }
+
+            if (gameState === "PLAYING") {
+                score += 0.2;
+                if (speed < maxSpeed) speed += 0.002;
+
+                document.getElementById('score-display').innerText = `BANDWIDTH_KB: ${Math.floor(score)}`;
+                if (score > highscore) {
+                    highscore = score;
+                    document.getElementById('best-display').innerText = `MAX_DOWNLOAD: ${Math.floor(highscore)}`;
+                }
+
+                // Smoothly slide interceptor vehicle across coordinates
+                player.x += (player.targetX - player.x) * 0.22;
+
+                // Move lane markers backwards to create travel velocity depth
+                roadLineOffset += speed;
+                if (roadLineOffset >= 40) roadLineOffset = 0;
+
+                // Spawn firewall barriers
+                spawnTimer++;
+                if (spawnTimer > Math.max(35, 75 - speed * 2)) {
+                    let obstacleLane = Math.floor(Math.random() * lanesCount);
+                    obstacles.push({
+                        x: (obstacleLane * laneWidth) + (laneWidth / 2) - 20,
+                        y: -100,
+                        width: 40,
+                        height: 40,
+                        bit: Math.random() > 0.5 ? "0" : "1"
+                    });
+                    spawnTimer = 0;
+                }
+
+                // Tracking obstacle metrics updates
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    let obs = obstacles[i];
+                    obs.y += speed;
+
+                    // Strict box collision mapping algorithm
+                    if (obs.y + obs.height > player.y + 4 && 
+                        obs.y < player.y + player.height - 4 &&
+                        obs.x + obs.width > player.x + 4 && 
+                        obs.x < player.x + player.width - 4) {
+                        triggerGameOver();
+                        return;
+                    }
+
+                    // Flush offscreen entities
+                    if (obs.y > canvas.height) {
+                        obstacles.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        // Render system visualization pipelines
+        function draw() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Render digital terminal rain behind game frame
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.06)';
+            ctx.font = '14px monospace';
+            for (let drop of matrixDrops) {
+                ctx.fillText(drop.char, drop.x, drop.y);
+            }
+
+            // Draw Virtual Highway Lane Tracking Boundaries
+            ctx.strokeStyle = 'rgba(0, 255, 65, 0.25)';
+            ctx.lineWidth = 2;
+            for (let i = 1; i < lanesCount; i++) {
+                ctx.save();
+                ctx.setLineDash([25, 15]);
+                ctx.beginPath();
+                // Introduce velocity factor to make dots slide down
+                ctx.moveTo(i * laneWidth, -40 + roadLineOffset);
+                ctx.lineTo(i * laneWidth, canvas.height);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            // Outer system tracking borders
+            ctx.strokeStyle = '#00ff41';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Incoming Security Blockades (Firewalls)
+            for (let obs of obstacles) {
+                ctx.fillStyle = '#051805';
+                ctx.strokeStyle = '#ff3333';
+                ctx.lineWidth = 2;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#ff3333';
+                
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
+
+                // Render system threat error signature binary
+                ctx.fillStyle = '#ff3333';
+                ctx.shadowBlur = 0;
+                ctx.font = 'bold 16px monospace';
+                ctx.fillText(obs.bit, obs.x + 15, obs.y + 26);
+            }
+
+            // Draw Player Rogue Interceptor Vehicle Frame
+            if (gameState !== "GAMEOVER") {
+                ctx.save();
+                
+                // Draw trailing tracking sparks
+                if (gameState === "PLAYING") {
+                    ctx.fillStyle = 'rgba(0, 255, 65, 0.4)';
+                    ctx.fillRect(player.x + 8, player.y + player.height, 6, 12);
+                    ctx.fillRect(player.x + player.width - 14, player.y + player.height, 6, 12);
+                }
+
+                // Chassis Base Layer
+                ctx.fillStyle = '#000000';
+                ctx.strokeStyle = '#00ff41';
+                ctx.lineWidth = 2.5;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#00ff41';
+                
+                // Draw abstract circuit-style car layout
+                ctx.fillRect(player.x, player.y, player.width, player.height);
+                ctx.strokeRect(player.x, player.y, player.width, player.height);
+
+                // Draw central data crystal node core
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowBlur = 4;
+                ctx.fillRect(player.x + player.width / 2 - 6, player.y + 35, 12, 25);
+
+                // Circuit traces overlay pattern lines
+                ctx.strokeStyle = '#00ff41';
+                ctx.lineWidth = 1;
+                ctx.shadowBlur = 0;
+                ctx.beginPath();
+                ctx.moveTo(player.x + 5, player.y + 15); ctx.lineTo(player.x + 15, player.y + 30);
+                ctx.moveTo(player.x + player.width - 5, player.y + 15); ctx.lineTo(player.x + player.width - 15, player.y + 30);
+                ctx.stroke();
+
+                ctx.restore();
+            }
+        }
+
+        // Animation timing loop processor loops
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>

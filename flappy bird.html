@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix_Flappy_Bird.exe</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #020202;
+            color: #00ff41;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 22px;
+            letter-spacing: 3px;
+            text-shadow: 0 0 8px #00ff41;
+        }
+
+        #game-container {
+            position: relative;
+            border: 2px solid #00ff41;
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.2);
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* CRT Scanline Effect Overlay */
+        #game-container::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 2;
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 16px;
+            z-index: 5;
+            text-shadow: 0 0 4px #000;
+        }
+
+        #screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .overlay-title {
+            font-size: 28px;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        
+        .overlay-title.start { color: #00ff41; text-shadow: 0 0 15px #00ff41; }
+        .overlay-title.over { color: #ff3333; text-shadow: 0 0 15px #ff3333; }
+
+        .overlay-sub {
+            font-size: 14px;
+            color: #ffffff;
+            opacity: 0.8;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <h1>[ SYSTEM.NEO_FLAP.V1 ]</h1>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="400" height="500"></canvas>
+        
+        <div id="ui-layer">
+            <span id="score-display">DATA_PACKETS: 0</span>
+            <span id="best-display">MAX_RECORD: 0</span>
+        </div>
+
+        <div id="screen-overlay">
+            <div id="overlay-main-text" class="overlay-title start">INITIALIZE_CONNECTION</div>
+            <div id="overlay-sub-text" class="overlay-sub">PRESS SPACEBAR OR CLICK TO NAVIGATE</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Game Configuration variables
+        let gameState = "START"; // START, PLAYING, GAMEOVER
+        let score = 0;
+        let highscore = 0;
+        
+        const gravity = 0.35;
+        const jumpForce = -6.5;
+        const pipeSpeed = 2.5;
+        const pipeGap = 130;
+        const pipeSpawnInterval = 100; // frames between spikes/pipes
+        let spawnTimer = 0;
+
+        let pipes = [];
+        let matrixDrops = [];
+        const chars = "0123456789日ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱﾎﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍ";
+
+        // Player (The Maverick Code Cube)
+        const bird = {
+            x: 80,
+            y: 250,
+            radius: 12,
+            vy: 0
+        };
+
+        // Initialize Matrix Rain Background columns
+        const fontSize = 14;
+        const columns = Math.floor(canvas.width / fontSize);
+        for (let i = 0; i < columns; i++) {
+            matrixDrops[i] = Math.random() * -canvas.height;
+        }
+
+        // Global Event Handlers for click and keyboard inputs
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+                e.preventDefault();
+                triggerAction();
+            }
+        });
+
+        window.addEventListener('mousedown', (e) => {
+            // Prevent interference if clicking somewhere else entirely
+            if(e.target === canvas || e.target.closest('#game-container')) {
+                e.preventDefault();
+                triggerAction();
+            }
+        });
+
+        function triggerAction() {
+            if (gameState === "START" || gameState === "GAMEOVER") {
+                resetGame();
+                gameState = "PLAYING";
+                document.getElementById('screen-overlay').classList.add('hidden');
+            } else if (gameState === "PLAYING") {
+                bird.vy = jumpForce;
+            }
+        }
+
+        function spawnPipe() {
+            // Pick a randomized center point for the clearance gap
+            const minHeight = 50;
+            const maxHeight = canvas.height - pipeGap - minHeight;
+            const gapY = Math.floor(Math.random() * (maxHeight - minHeight)) + minHeight;
+
+            pipes.push({
+                x: canvas.width,
+                topHeight: gapY,
+                bottomY: gapY + pipeGap,
+                width: 45,
+                passed: false
+            });
+        }
+
+        function resetGame() {
+            pipes = [];
+            bird.y = 250;
+            bird.vy = 0;
+            score = 0;
+            spawnTimer = 0;
+            document.getElementById('score-display').innerText = `DATA_PACKETS: ${score}`;
+        }
+
+        function triggerGameOver() {
+            gameState = "GAMEOVER";
+            document.getElementById('overlay-main-text').innerText = "SIGNAL_LOST.EXE";
+            document.getElementById('overlay-main-text').className = "overlay-title over";
+            document.getElementById('overlay-sub-text').innerText = `PACKETS SECURED: ${score} - CLICK TO REBOOT`;
+            document.getElementById('screen-overlay').classList.remove('hidden');
+        }
+
+        // Logic processing step
+        function update() {
+            // 1. Matrix Background Simulation (Always updates)
+            for (let i = 0; i < matrixDrops.length; i++) {
+                matrixDrops[i] += 2; // Speed of digital rain
+                if (matrixDrops[i] > canvas.height && Math.random() > 0.975) {
+                    matrixDrops[i] = 0;
+                }
+            }
+
+            if (gameState === "PLAYING") {
+                // 2. Player Physics
+                bird.vy += gravity;
+                bird.y += bird.vy;
+
+                // Ceiling/Floor boundaries
+                if (bird.y + bird.radius > canvas.height || bird.y - bird.radius < 0) {
+                    triggerGameOver();
+                }
+
+                // 3. Pipe Generation and movement
+                spawnTimer++;
+                if (spawnTimer >= pipeSpawnInterval) {
+                    spawnPipe();
+                    spawnTimer = 0;
+                }
+
+                for (let i = pipes.length - 1; i >= 0; i--) {
+                    let p = pipes[i];
+                    p.x -= pipeSpeed;
+
+                    // Score increment validation
+                    if (!p.passed && p.x + p.width < bird.x) {
+                        score++;
+                        p.passed = true;
+                        document.getElementById('score-display').innerText = `DATA_PACKETS: ${score}`;
+                        if (score > highscore) {
+                            highscore = score;
+                            document.getElementById('best-display').innerText = `MAX_RECORD: ${highscore}`;
+                        }
+                    }
+
+                    // Collision checking math
+                    let bLeft = bird.x - bird.radius;
+                    let bRight = bird.x + bird.radius;
+                    let bTop = bird.y - bird.radius;
+                    let bBottom = bird.y + bird.radius;
+
+                    if (bRight > p.x && bLeft < p.x + p.width) {
+                        // Check if touching top obstacle block or lower obstacle block
+                        if (bTop < p.topHeight || bBottom > p.bottomY) {
+                            triggerGameOver();
+                        }
+                    }
+
+                    // Cleanup off-screen entities
+                    if (p.x + p.width < 0) {
+                        pipes.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        // Rendering step
+        function draw() {
+            // Clear screen completely
+            ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw falling code matrix rain (dim green)
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.08)';
+            ctx.font = `${fontSize}px monospace`;
+            for (let i = 0; i < matrixDrops.length; i++) {
+                const char = chars[Math.floor(Math.random() * chars.length)];
+                ctx.fillText(char, i * fontSize, matrixDrops[i]);
+            }
+
+            // Draw Pipes (styled like neon matrix data grids)
+            for (let p of pipes) {
+                ctx.strokeStyle = '#00ff41';
+                ctx.lineWidth = 2;
+                ctx.fillStyle = '#031204';
+
+                // Top Pipe block drawing
+                ctx.fillRect(p.x, 0, p.width, p.topHeight);
+                ctx.strokeRect(p.x, -2, p.width, p.topHeight + 2);
+
+                // Bottom Pipe block drawing
+                ctx.fillRect(p.x, p.bottomY, p.width, canvas.height - p.bottomY);
+                ctx.strokeRect(p.x, p.bottomY, p.width, canvas.height - p.bottomY + 2);
+
+                // Tech-line accents inside pipes
+                ctx.fillStyle = 'rgba(0, 255, 65, 0.15)';
+                ctx.fillRect(p.x + 4, 0, 3, p.topHeight);
+                ctx.fillRect(p.x + 4, p.bottomY, 3, canvas.height - p.bottomY);
+            }
+
+            // Draw Player Cube (The Code Packet)
+            if (gameState !== "GAMEOVER") {
+                ctx.save();
+                ctx.translate(bird.x, bird.y);
+
+                // Neon particle core
+                ctx.fillStyle = '#fff';
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = '#00ff41';
+                ctx.fillRect(-bird.radius, -bird.radius, bird.radius * 2, bird.radius * 2);
+
+                // Circuit design border pattern
+                ctx.strokeStyle = '#00ff41';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(-bird.radius, -bird.radius, bird.radius * 2, bird.radius * 2);
+
+                // Display tracking bits inside block
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 10px monospace';
+                ctx.fillText("■", -4, 4);
+
+                ctx.restore();
+            }
+        }
+
+        // Main Animation Engine Loop Execution
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>

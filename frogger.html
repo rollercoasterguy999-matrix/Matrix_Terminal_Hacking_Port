@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix_Frogger_Router.exe</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #010402;
+            color: #00ff41;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        h1 {
+            margin: 0 0 5px 0;
+            font-size: 3.5vh;
+            letter-spacing: 3px;
+            text-shadow: 0 0 8px #00ff41;
+            text-align: center;
+        }
+
+        #game-container {
+            position: relative;
+            border: 2px solid #00ff41;
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.25);
+            background: #000;
+            max-height: 80vh;
+            max-width: 95vw;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            display: block;
+            max-height: 80vh;
+            max-width: 100%;
+            object-fit: contain;
+        }
+
+        /* CRT Scanline Overlay */
+        #game-container::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%);
+            z-index: 2;
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 14px;
+            z-index: 5;
+            text-shadow: 0 0 5px #000;
+        }
+
+        #screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        .overlay-title {
+            font-size: 24px;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .overlay-title.start { color: #00ff41; text-shadow: 0 0 15px #00ff41; }
+        .overlay-title.over { color: #ff3333; text-shadow: 0 0 15px #ff3333; }
+
+        .overlay-sub {
+            font-size: 13px;
+            color: #ffffff;
+            opacity: 0.8;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <h1>[ PACKET_ROUTER.SYS ]</h1>
+
+    <div id="game-container">
+        <canvas id="froggerCanvas" width="560" height="560"></canvas>
+        
+        <div id="ui-layer">
+            <span id="score-display">PACKETS_ROUTED: 0/4</span>
+        </div>
+
+        <div id="screen-overlay" onclick="startGame()">
+            <div id="overlay-main-text" class="overlay-title start">INITIALIZE_ROUTING_PROBE</div>
+            <div id="overlay-sub-text" class="overlay-sub">
+                ARROW KEYS or WASD to Transmit Packet<br>
+                Dodge All Firewalls & Corrupted Sectors to Secure Nodes.
+            </div>
+        </div>
+    </div>
+
+<script>
+        const canvas = document.getElementById('froggerCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const gridSize = 40;
+        let gameState = "START";
+        let packetsRouted = 0;
+        let animationFrameId = null;
+
+        // Player starting configuration
+        const player = {
+            x: 7 * gridSize,
+            y: 13 * gridSize,
+            width: gridSize,
+            height: gridSize
+        };
+
+        // Arrays containing dynamic data flows
+        let rowsData = [];
+        let secureNodes = [
+            { x: 1 * gridSize, filled: false },
+            { x: 5 * gridSize, filled: false },
+            { x: 9 * gridSize, filled: false },
+            { x: 13 * gridSize, filled: false }
+        ];
+
+        // Background digital matrix rain streams
+        let matrixDrops = [];
+        const chars = "0123456789日ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱ";
+        for (let i = 0; i < 14; i++) {
+            matrixDrops.push({ x: i * 40, y: Math.random() * canvas.height, speed: Math.random() * 1.2 + 0.4 });
+        }
+
+        // Row Types: 'traffic' (dodge them), 'safe' (neutral workspace)
+        function initRows() {
+            rowsData = [];
+            
+            // Bottom Half Hazards (Rows 8 to 12)
+            rowsData[12] = { type: 'traffic', speed: -0.8, obstacles: [{x: 100}, {x: 300}, {x: 500}], color: '#ff3333', text: 'FIREWALL_A' };
+            rowsData[11] = { type: 'traffic', speed: 1.1,  obstacles: [{x: 0}, {x: 250}],           color: '#ff5555', text: 'BAD_SECTOR' };
+            rowsData[10] = { type: 'traffic', speed: -1.3, obstacles: [{x: 50}, {x: 220}, {x: 400}], color: '#ff1111', text: 'MALWARE' };
+            rowsData[9]  = { type: 'traffic', speed: 0.7,  obstacles: [{x: 150}, {x: 450}],          color: '#ff3333', text: 'FIREWALL_B' };
+            rowsData[8]  = { type: 'traffic', speed: -1.6, obstacles: [{x: 0}, {x: 300}],           color: '#ff0000', text: 'TRACKER_EXP' };
+
+            // Neutral Safe Buffer Layer (Row 7)
+            rowsData[7]  = { type: 'safe' };
+
+            // Top Half Hazards (Rows 2 to 6)
+            rowsData[6]  = { type: 'traffic', speed: 1.5,  obstacles: [{x: 40}, {x: 240}, {x: 440}], color: '#ff6600', text: 'OVERFLOW_A' };
+            rowsData[5]  = { type: 'traffic', speed: -2.0, obstacles: [{x: 100}, {x: 350}],          color: '#ff3300', text: 'KILL_SIG' };
+            rowsData[4]  = { type: 'traffic', speed: 2.5,  obstacles: [{x: 0}, {x: 200}, {x: 400}],  color: '#ff7700', text: 'CORRUPT_LN' };
+            rowsData[3]  = { type: 'traffic', speed: -1.2, obstacles: [{x: 50}, {x: 300}],           color: '#ff4400', text: 'SPIKE_DET' };
+            rowsData[2]  = { type: 'traffic', speed: 1.8,  obstacles: [{x: 0}, {x: 250}],           color: '#ff2200', text: 'SYS_HALT' };
+        }
+
+        // Input Navigation Triggers
+        window.addEventListener('keydown', (e) => {
+            if (gameState !== "PLAYING") return;
+
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+                player.y -= gridSize;
+            } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+                if (player.y < 13 * gridSize) player.y += gridSize;
+            } else if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+                player.x -= gridSize;
+                if (player.x < 0) player.x = 0;
+            } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                player.x += gridSize;
+                if (player.x > canvas.width - gridSize) player.x = canvas.width - gridSize;
+            }
+
+            // Top boundary destination handler logic checks
+            if (player.y === 1 * gridSize) {
+                checkTargetDocking();
+            }
+        });
+
+        function startGame() {
+            if (gameState === "START" || gameState === "GAMEOVER") {
+                packetsRouted = 0;
+                secureNodes.forEach(n => n.filled = false);
+                document.getElementById('score-display').innerText = `PACKETS_ROUTED: ${packetsRouted}/4`;
+                resetPlayerPosition();
+                initRows();
+                gameState = "PLAYING";
+                document.getElementById('screen-overlay').classList.add('hidden');
+                loop();
+            }
+        }
+
+        function resetPlayerPosition() {
+            player.x = 7 * gridSize;
+            player.y = 13 * gridSize;
+        }
+
+        function triggerGameOver(success = false) {
+            gameState = "GAMEOVER";
+            cancelAnimationFrame(animationFrameId);
+            
+            const title = document.getElementById('overlay-main-text');
+            const sub = document.getElementById('overlay-sub-text');
+
+            if (success) {
+                title.innerText = "ALL_PACKETS_TRANSMITTED";
+                title.className = "overlay-title start";
+                sub.innerHTML = `NETWORK PIPELINE PURIFIED SUCCESSFULLY.<br>CLICK TO INJECT NEXT WAVE.`;
+            } else {
+                title.innerText = "PACKET_DE_RESOLUTION.ERR";
+                title.className = "overlay-title over";
+                sub.innerHTML = `DATA CORRUPTED IN TRANSIT.<br>COMPILED TRANSMISSIONS: ${packetsRouted}/4<br>CLICK TO RE-ROUTE`;
+            }
+            document.getElementById('screen-overlay').classList.remove('hidden');
+        }
+
+        function checkTargetDocking() {
+            let gridX = Math.round(player.x / gridSize) * gridSize;
+            let foundTarget = false;
+
+            for (let node of secureNodes) {
+                if (Math.abs(gridX - node.x) < gridSize / 2) {
+                    if (!node.filled) {
+                        player.x = node.x; 
+                        node.filled = true;
+                        packetsRouted++;
+                        document.getElementById('score-display').innerText = `PACKETS_ROUTED: ${packetsRouted}/4`;
+                        foundTarget = true;
+                        
+                        if (packetsRouted === 4) {
+                            triggerGameOver(true);
+                        } else {
+                            resetPlayerPosition();
+                        }
+                    } else {
+                        player.y += gridSize;
+                        return;
+                    }
+                    break;
+                }
+            }
+            if (!foundTarget) {
+                triggerGameOver(false);
+            }
+        }
+
+        // Core Physics loop computations
+        function update() {
+            for (let drop of matrixDrops) {
+                drop.y += drop.speed;
+                if (drop.y > canvas.height) drop.y = -20;
+            }
+
+            // Update obstacles continuously regardless of whether player stands on a 'safe' row index
+            for (let i = 0; i < rowsData.length; i++) {
+                let row = rowsData[i];
+                if (!row || row.type === 'safe') continue;
+
+                for (let obs of row.obstacles) {
+                    obs.x += row.speed;
+                    let width = 65; 
+
+                    if (row.speed > 0 && obs.x > canvas.width) obs.x = -width;
+                    if (row.speed < 0 && obs.x < -width) obs.x = canvas.width;
+                }
+            }
+
+            if (gameState !== "PLAYING") return;
+
+            let currentRowIdx = player.y / gridSize;
+
+            // Ignore player collision completely if sitting on Safe Middle Row (7) or Target Row (1)
+            if (currentRowIdx === 7 || currentRowIdx === 1) return;
+
+            // Explicit active hazard collision evaluation 
+            let activeRow = rowsData[currentRowIdx];
+            if (activeRow && activeRow.type === 'traffic') {
+                for (let obs of activeRow.obstacles) {
+                    if (player.x + gridSize - 6 > obs.x && player.x + 6 < obs.x + 65) {
+                        triggerGameOver(false);
+                        return;
+                    }
+                }
+            }
+        }
+
+        function draw() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.04)';
+            ctx.font = '14px monospace';
+            for (let drop of matrixDrops) {
+                let char = chars[Math.floor(Math.random() * chars.length)];
+                ctx.fillText(char, drop.x, drop.y);
+            }
+
+            ctx.fillStyle = '#011502';
+            ctx.fillRect(0, 0, canvas.width, 2 * gridSize);
+            ctx.strokeStyle = '#00ff41';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(0, 0, canvas.width, 2 * gridSize);
+
+            for (let node of secureNodes) {
+                if (node.filled) {
+                    ctx.fillStyle = '#00ff41';
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#00ff41';
+                    ctx.fillRect(node.x, gridSize, gridSize, gridSize);
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#000000';
+                    ctx.font = 'bold 12px monospace';
+                    ctx.fillText("[C]", node.x + 10, gridSize + 24);
+                } else {
+                    ctx.fillStyle = '#000000';
+                    ctx.strokeStyle = '#00ff41';
+                    ctx.fillRect(node.x, gridSize, gridSize, gridSize);
+                    ctx.strokeRect(node.x, gridSize, gridSize, gridSize);
+                }
+            }
+
+            for (let i = 2; i <= 13; i++) {
+                let row = rowsData[i];
+                let ty = i * gridSize;
+
+                if (!row) continue;
+
+                if (row.type === 'safe' || i === 13) {
+                    ctx.fillStyle = 'rgba(0, 255, 65, 0.05)';
+                    ctx.fillRect(0, ty, canvas.width, gridSize);
+                    ctx.strokeStyle = 'rgba(0, 255, 65, 0.15)';
+                    ctx.strokeRect(0, ty, canvas.width, gridSize);
+                }
+
+                if (row.type === 'traffic') {
+                    for (let obs of row.obstacles) {
+                        ctx.fillStyle = '#100204';
+                        ctx.strokeStyle = row.color;
+                        ctx.lineWidth = 1.5;
+                        ctx.fillRect(obs.x, ty + 4, 65, gridSize - 8);
+                        ctx.strokeRect(obs.x, ty + 4, 65, gridSize - 8);
+
+                        ctx.fillStyle = row.color;
+                        ctx.font = 'bold 9px monospace';
+                        ctx.fillText("WARN.ERR", obs.x + 8, ty + 24);
+                    }
+                }
+            }
+
+            if (gameState !== "GAMEOVER") {
+                ctx.save();
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = '#00ff41';
+                ctx.font = 'bold 18px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText("[ ]", player.x + gridSize / 2, player.y + gridSize / 2);
+                ctx.restore();
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            animationFrameId = requestAnimationFrame(loop);
+        }
+
+        initRows();
+        draw();
+    </script>
+</body>
+</html>

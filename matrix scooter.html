@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix_Scooter_Trickster.exe</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #010402;
+            color: #00ff41;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 22px;
+            letter-spacing: 3px;
+            text-shadow: 0 0 8px #00ff41;
+        }
+
+        #game-container {
+            position: relative;
+            border: 2px solid #00ff41;
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.25);
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* CRT Scanline Overlay */
+        #game-container::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%);
+            z-index: 2;
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 15px;
+            z-index: 5;
+            text-shadow: 0 0 5px #000;
+        }
+
+        #screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        .overlay-title {
+            font-size: 26px;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        
+        .overlay-title.start { color: #00ff41; text-shadow: 0 0 15px #00ff41; }
+        .overlay-title.over { color: #ff3333; text-shadow: 0 0 15px #ff3333; }
+
+        .overlay-sub {
+            font-size: 14px;
+            color: #ffffff;
+            opacity: 0.8;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <h1>[ CODENAME.TAILWHIP.SYS ]</h1>
+
+    <div id="game-container">
+        <canvas id="scooterCanvas" width="700" height="400"></canvas>
+        
+        <div id="ui-layer">
+            <span id="score-display">SCORE: 0 (x1)</span>
+            <span id="trick-display">TRICK: NONE</span>
+        </div>
+
+        <div id="screen-overlay" onclick="startGame()">
+            <div id="overlay-main-text" class="overlay-title start">BOOT_FLOW_ENGINE</div>
+            <div id="overlay-sub-text" class="overlay-sub">UP ARROW to Jump | LEFT/RIGHT while airborne to Trick</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('scooterCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Physics variables
+        const gravity = 0.5;
+        const groundY = 320;
+
+        // Game state variables
+        let gameState = "START";
+        let globalScore = 0;
+        let comboScore = 0;
+        let comboMultiplier = 1;
+        let gameSpeed = 6;
+        let currentTrickText = "NONE";
+
+        // Player physics and rotation matrix
+        const player = {
+            x: 100,
+            y: groundY - 40,
+            width: 25,
+            height: 40,
+            vy: 0,
+            isGrounded: true,
+            rotation: 0
+        };
+
+        // Entities arrays
+        let obstacles = [];
+        let matrixDrops = [];
+        const chars = "0123456789日ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱ";
+        let spawnTimer = 0;
+
+        // Setup background system rain elements
+        for (let i = 0; i < 35; i++) {
+            matrixDrops.push({ x: i * 20, y: Math.random() * canvas.height, speed: Math.random() * 1.5 + 0.5 });
+        }
+
+        // Handle Keyboard Events
+        window.addEventListener('keydown', (e) => {
+            if (gameState !== "PLAYING") {
+                if (['ArrowUp', ' ', 'Enter', 'w'].includes(e.key)) startGame();
+                return;
+            }
+
+            // Jump Action
+            if ((e.key === 'ArrowUp' || e.key === 'w' || e.key === ' ') && player.isGrounded) {
+                player.vy = -12;
+                player.isGrounded = false;
+                currentTrickText = "AIRBORNE";
+            }
+
+            // Airborne Tricks Inputs
+            if (!player.isGrounded) {
+                if (e.key === 'ArrowLeft' || e.key === 'a') {
+                    player.rotation -= Math.PI / 2; // Flip backward
+                    comboScore += 150;
+                    comboMultiplier += 0.2;
+                    currentTrickText = "TAILWHIP_INJECTED";
+                }
+                if (e.key === 'ArrowRight' || e.key === 'd') {
+                    player.rotation += Math.PI / 2; // Flip forward
+                    comboScore += 200;
+                    comboMultiplier += 0.3;
+                    currentTrickText = "DATA_BAR_SPIN";
+                }
+            }
+        });
+
+        function startGame() {
+            if (gameState === "START" || gameState === "GAMEOVER") {
+                resetGame();
+                gameState = "PLAYING";
+                document.getElementById('screen-overlay').classList.add('hidden');
+            }
+        }
+
+        function resetGame() {
+            obstacles = [];
+            player.y = groundY - player.height;
+            player.vy = 0;
+            player.rotation = 0;
+            player.isGrounded = true;
+            globalScore = 0;
+            comboScore = 0;
+            comboMultiplier = 1;
+            gameSpeed = 6;
+            spawnTimer = 0;
+            currentTrickText = "NONE";
+            updateUI();
+        }
+
+        function updateUI() {
+            document.getElementById('score-display').innerText = `SCORE: ${Math.floor(globalScore)} (x${comboMultiplier.toFixed(1)})`;
+            document.getElementById('trick-display').innerText = `TRICK: ${currentTrickText}`;
+        }
+
+        function triggerGameOver() {
+            gameState = "GAMEOVER";
+            document.getElementById('overlay-main-text').innerText = "BUFFER_OVERFLOW_CRASH";
+            document.getElementById('overlay-main-text').className = "overlay-title over";
+            document.getElementById('overlay-sub-text').innerText = `FINAL EXECUTED SCORE: ${Math.floor(globalScore)} - CLICK TO RE-RUN`;
+            document.getElementById('screen-overlay').classList.remove('hidden');
+        }
+
+        // Logic processing loops
+        function update() {
+            // Animate global rain background static layers
+            for (let drop of matrixDrops) {
+                drop.y += drop.speed;
+                if (drop.y > canvas.height) drop.y = -20;
+            }
+
+            if (gameState === "PLAYING") {
+                globalScore += 0.1; // Passive survival score
+                updateUI();
+
+                // Physics Gravity application
+                if (!player.isGrounded) {
+                    player.vy += gravity;
+                    player.y += player.vy;
+                }
+
+                // Landing validation check
+                if (player.y >= groundY - player.height) {
+                    player.y = groundY - player.height;
+                    player.vy = 0;
+
+                    if (!player.isGrounded) {
+                        player.isGrounded = true;
+                        
+                        // OlliOlli Landing Logic: Check if scooter deck orientation is safe (upright)
+                        let normalizedRot = Math.abs(player.rotation % (Math.PI * 2));
+                        if (normalizedRot > 0.3 && normalizedRot < (Math.PI * 2 - 0.3)) {
+                            // Wrecked landing due to bad flip angles
+                            triggerGameOver();
+                            return;
+                        } else {
+                            // Perfect landing converts combo scores to mainframe
+                            player.rotation = 0;
+                            globalScore += comboScore * comboMultiplier;
+                            comboScore = 0;
+                            comboMultiplier = 1;
+                            currentTrickText = "CLEAN_LANDING";
+                        }
+                    }
+                }
+
+                // Obstacles generation engine
+                spawnTimer++;
+                if (spawnTimer > 110 + Math.random() * 70) {
+                    obstacles.push({
+                        x: canvas.width,
+                        y: groundY - 25,
+                        width: 25,
+                        height: 25
+                    });
+                    spawnTimer = 0;
+                }
+
+                // Manage active firewalls
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    let obs = obstacles[i];
+                    obs.x -= gameSpeed;
+
+                    // Box tracking proxy check loops
+                    if (obs.x < player.x + player.width && obs.x + obs.width > player.x &&
+                        obs.y < player.y + player.height && obs.y + obs.height > player.y) {
+                        triggerGameOver();
+                        return;
+                    }
+
+                    if (obs.x + obs.width < 0) obstacles.splice(i, 1);
+                }
+            }
+        }
+
+        // Render system visualization pipelines
+        function draw() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Render stream matrix grid text
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.05)';
+            ctx.font = '14px monospace';
+            for (let drop of matrixDrops) {
+                let char = chars[Math.floor(Math.random() * chars.length)];
+                ctx.fillText(char, drop.x, drop.y);
+            }
+
+            // Ground Rail Platform
+            ctx.fillStyle = '#051106';
+            ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+            ctx.strokeStyle = '#00ff41';
+            ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(0, groundY); ctx.lineTo(canvas.width, groundY); ctx.stroke();
+
+            // Obstacles rendering (Firewall bricks)
+            for (let obs of obstacles) {
+                ctx.fillStyle = '#100204';
+                ctx.strokeStyle = '#ff3333';
+                ctx.lineWidth = 2;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#ff3333';
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
+            }
+            ctx.shadowBlur = 0; // Clear blur layer parameters
+
+            // Draw Matrix Scooter Operative
+            if (gameState !== "GAMEOVER") {
+                ctx.save();
+                
+                // Shift context point to the center of target rider structure for smooth flip rotations
+                ctx.translate(player.x + player.width / 2, player.y + player.height / 2);
+                ctx.rotate(player.rotation);
+
+                ctx.strokeStyle = '#00ff41';
+                ctx.lineWidth = 2;
+                ctx.fillStyle = '#000000';
+
+                // Render Abstract Rider Node Box
+                ctx.fillRect(-10, -20, 20, 25);
+                ctx.strokeRect(-10, -20, 20, 25);
+
+                // Render Scooter Handlebars T-Bar line architecture
+                ctx.beginPath();
+                ctx.moveTo(8, -15);
+                ctx.lineTo(8, 15); // Main stem line down
+                ctx.moveTo(3, -15);
+                ctx.lineTo(13, -15); // Handlebars top cross
+                ctx.stroke();
+
+                // Render Scooter Deck (The baseline platform frame)
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(-15, 15);
+                ctx.lineTo(10, 15);
+                ctx.stroke();
+
+                // Render Tiny wheels dots structures
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath(); ctx.arc(-12, 18, 3, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(8, 18, 3, 0, Math.PI * 2); ctx.fill();
+
+                ctx.restore();
+            }
+        }
+
+        // Loop animation sequence frames
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>

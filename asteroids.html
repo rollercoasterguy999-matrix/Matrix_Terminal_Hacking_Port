@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix_Asteroids_Purge.exe</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #010402;
+            color: #00ff41;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        h1 {
+            margin: 0 0 5px 0;
+            font-size: 3.5vh;
+            letter-spacing: 3px;
+            text-shadow: 0 0 8px #00ff41;
+            text-align: center;
+        }
+
+        #game-container {
+            position: relative;
+            border: 2px solid #00ff41;
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.25);
+            background: #000;
+            max-height: 80vh;
+            max-width: 95vw;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            display: block;
+            max-height: 80vh;
+            max-width: 100%;
+            object-fit: contain;
+        }
+
+        /* CRT Scanline Overlay */
+        #game-container::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%);
+            z-index: 2;
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 14px;
+            z-index: 5;
+            text-shadow: 0 0 5px #000;
+        }
+
+        #screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        .overlay-title {
+            font-size: 24px;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .overlay-title.start { color: #00ff41; text-shadow: 0 0 15px #00ff41; }
+        .overlay-title.over { color: #ff3333; text-shadow: 0 0 15px #ff3333; }
+
+        .overlay-sub {
+            font-size: 13px;
+            color: #ffffff;
+            opacity: 0.8;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <h1>[ CLUSTER_PURGE.EXE ]</h1>
+
+    <div id="game-container">
+        <canvas id="asteroidsCanvas" width="600" height="500"></canvas>
+        
+        <div id="ui-layer">
+            <span id="score-display">SECTORS_CLEARED: 0</span>
+        </div>
+
+        <div id="screen-overlay" onclick="startGame()">
+            <div id="overlay-main-text" class="overlay-title start">BOOT_POINTER_PROBE</div>
+            <div id="overlay-sub-text" class="overlay-sub">
+                A/D or ARROWS to Rotate | W or UP to Fire Thrusters<br>
+                SPACEBAR to Vaporize Corrupted Data Sectors
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('asteroidsCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let gameState = "START";
+        let score = 0;
+        let animationFrameId = null;
+
+        // Player Ship Vector Dynamics
+        const ship = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            r: 12, // Radius
+            angle: -Math.PI / 2, // Facing straight up initially
+            rotation: 0,
+            thrusting: false,
+            velocity: { x: 0, y: 0 },
+            friction: 0.985 // Drift decay drag
+        };
+
+        let lasers = [];
+        let asteroids = [];
+        const baseAsteroidSpeed = 1.2;
+
+        // Background digital matrix rain streams
+        let matrixDrops = [];
+        const chars = "0123456789日ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱ";
+        for (let i = 0; i < 20; i++) {
+            matrixDrops.push({ x: i * 30, y: Math.random() * canvas.height, speed: Math.random() * 1.5 + 0.5 });
+        }
+
+        // Mapping Control Events
+        window.addEventListener('keydown', (e) => {
+            if (gameState !== "PLAYING") return;
+
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+                ship.rotation = -0.07;
+            } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                ship.rotation = 0.07;
+            } else if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+                ship.thrusting = true;
+            } else if (e.key === ' ') {
+                e.preventDefault();
+                fireLaser();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A' || e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                ship.rotation = 0;
+            }
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+                ship.thrusting = false;
+            }
+        });
+
+        function startGame() {
+            if (gameState === "START" || gameState === "GAMEOVER") {
+                score = 0;
+                lasers = [];
+                document.getElementById('score-display').innerText = `SECTORS_CLEARED: ${score}`;
+                
+                // Reset Ship Parameters
+                ship.x = canvas.width / 2;
+                ship.y = canvas.height / 2;
+                ship.velocity = { x: 0, y: 0 };
+                ship.angle = -Math.PI / 2;
+
+                spawnAsteroidCluster(5);
+                gameState = "PLAYING";
+                document.getElementById('screen-overlay').classList.add('hidden');
+                loop();
+            }
+        }
+
+        function spawnAsteroidCluster(count) {
+            asteroids = [];
+            for (let i = 0; i < count; i++) {
+                let x, y;
+                // Don't spawn data blocks right on top of the starting ship space
+                do {
+                    x = Math.random() * canvas.width;
+                    y = Math.random() * canvas.height;
+                } while (distBetweenPoints(ship.x, ship.y, x, y) < 100);
+
+                createAsteroid(x, y, 3); // Size 3 = Large data block
+            }
+        }
+
+        function createAsteroid(x, y, size) {
+            let speedMultiplier = size === 3 ? 1 : size === 2 ? 1.4 : 1.9;
+            let randomAngle = Math.random() * Math.PI * 2;
+            
+            asteroids.push({
+                x: x,
+                y: y,
+                vx: Math.cos(randomAngle) * baseAsteroidSpeed * speedMultiplier,
+                vy: Math.sin(randomAngle) * baseAsteroidSpeed * speedMultiplier,
+                size: size,
+                radius: size === 3 ? 28 : size === 2 ? 18 : 10,
+                textCode: size === 3 ? "0x7F" : size === 2 ? "ERR" : "01"
+            });
+        }
+
+        function fireLaser() {
+            if (lasers.length < 6) {
+                lasers.push({
+                    x: ship.x + Math.cos(ship.angle) * ship.r,
+                    y: ship.y + Math.sin(ship.angle) * ship.r,
+                    vx: Math.cos(ship.angle) * 7.5,
+                    vy: Math.sin(ship.angle) * 7.5,
+                    life: 45 // Frame count before laser packets de-res
+                });
+            }
+        }
+
+        function distBetweenPoints(x1, y1, x2, y2) {
+            return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+        }
+
+        function triggerGameOver() {
+            gameState = "GAMEOVER";
+            cancelAnimationFrame(animationFrameId);
+            
+            const title = document.getElementById('overlay-main-text');
+            const sub = document.getElementById('overlay-sub-text');
+
+            title.innerText = "POINTER_CRITICAL_FAULT.ERR";
+            title.className = "overlay-title over";
+            sub.innerHTML = `BUFFER RE-ALLOCATION COMPLETE.<br>SECTORS PURGED: ${score}<br>CLICK TO SYSTEM REBOOT`;
+            document.getElementById('screen-overlay').classList.remove('hidden');
+        }
+
+        // Processing and Physics Step Updates
+        function update() {
+            // Animate backgrounds codes
+            for (let drop of matrixDrops) {
+                drop.y += drop.speed;
+                if (drop.y > canvas.height) drop.y = -20;
+            }
+
+            if (gameState !== "PLAYING") return;
+
+            // 1. Ship Heading & Velocity Computations
+            ship.angle += ship.rotation;
+            if (ship.thrusting) {
+                ship.velocity.x += Math.cos(ship.angle) * 0.16;
+                ship.velocity.y += Math.sin(ship.angle) * 0.16;
+            }
+            
+            // Apply drift drag dampening
+            ship.velocity.x *= ship.friction;
+            ship.velocity.y *= ship.friction;
+
+            ship.x += ship.velocity.x;
+            ship.y += ship.velocity.y;
+
+            // Global Virtual Screen Wrap-Arounds
+            if (ship.x < -ship.r) ship.x = canvas.width + ship.r;
+            if (ship.x > canvas.width + ship.r) ship.x = -ship.r;
+            if (ship.y < -ship.r) ship.y = canvas.height + ship.r;
+            if (ship.y > canvas.height + ship.r) ship.y = -ship.r;
+
+            // 2. Process Fired Code Lasers
+            for (let i = lasers.length - 1; i >= 0; i--) {
+                let l = lasers[i];
+                l.x += l.vx;
+                l.y += l.vy;
+                l.life--;
+
+                // Screen wrap for projectiles
+                if (l.x < 0) l.x = canvas.width;
+                if (l.x > canvas.width) l.x = 0;
+                if (l.y < 0) l.y = canvas.height;
+                if (l.y > canvas.height) l.y = 0;
+
+                if (l.life <= 0) {
+                    lasers.splice(i, 1);
+                }
+            }
+
+            // 3. Process Corrupted Data Blocks
+            for (let inv of asteroids) {
+                inv.x += inv.vx;
+                inv.y += inv.vy;
+
+                // Wrap data blocks around screen layout
+                if (inv.x < -inv.radius) inv.x = canvas.width + inv.radius;
+                if (inv.x > canvas.width + inv.radius) inv.x = -inv.radius;
+                if (inv.y < -inv.radius) inv.y = canvas.height + inv.radius;
+                if (inv.y > canvas.height + inv.radius) inv.y = -inv.radius;
+
+                // Structural Crash Hit-Test (Data Blocks vs Ship Core Pointer)
+                if (distBetweenPoints(ship.x, ship.y, inv.x, inv.y) < ship.r + inv.radius) {
+                    triggerGameOver();
+                    return;
+                }
+            }
+
+            // 4. Hit-Test Proxies Matrix Evaluation (Lasers vs Data Blocks)
+            outerLoop: for (let i = lasers.length - 1; i >= 0; i--) {
+                let l = lasers[i];
+                for (let j = asteroids.length - 1; j >= 0; j--) {
+                    let a = asteroids[j];
+
+                    if (distBetweenPoints(l.x, l.y, a.x, a.y) < a.radius) {
+                        // Impact confirmed: vaporize laser project, fracture block segment
+                        lasers.splice(i, 1);
+                        
+                        if (a.size > 1) {
+                            // Sub-divide sector block into smaller arrays
+                            createAsteroid(a.x, a.y, a.size - 1);
+                            createAsteroid(a.x, a.y, a.size - 1);
+                        }
+
+                        asteroids.splice(j, 1);
+                        score += a.size === 3 ? 20 : a.size === 2 ? 50 : 100;
+                        document.getElementById('score-display').innerText = `SECTORS_CLEARED: ${score}`;
+
+                        // Level compilation sweep clean check
+                        if (asteroids.length === 0) {
+                            spawnAsteroidCluster(Math.min(12, 5 + Math.floor(score / 600)));
+                        }
+                        break outerLoop;
+                    }
+                }
+            }
+        }
+
+        // Master Layout Graphics Display Render Pipeline Painter
+        function draw() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Matrix background stream codes rendering
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.04)';
+            ctx.font = '14px monospace';
+            for (let drop of matrixDrops) {
+                let char = chars[Math.floor(Math.random() * chars.length)];
+                ctx.fillText(char, drop.x, drop.y);
+            }
+
+            // Draw Decryption Command Pointer (Player Space Vector Triangle)
+            if (gameState !== "GAMEOVER") {
+                ctx.save();
+                ctx.translate(ship.x, ship.y);
+                ctx.rotate(ship.angle);
+                
+                ctx.strokeStyle = '#ffffff';
+                ctx.fillStyle = '#000000';
+                ctx.lineWidth = 2;
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = '#00ff41';
+                
+                ctx.beginPath();
+                // Sharp vector terminal arrow profile metrics
+                ctx.moveTo(ship.r * 1.3, 0);
+                ctx.lineTo(-ship.r * 0.9, -ship.r * 0.8);
+                ctx.lineTo(-ship.r * 0.4, 0);
+                ctx.lineTo(-ship.r * 0.9, ship.r * 0.8);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // Small core thrust trace indicator wire
+                if (ship.thrusting && Math.random() > 0.3) {
+                    ctx.strokeStyle = '#00ff41';
+                    ctx.beginPath();
+                    ctx.moveTo(-ship.r * 0.5, 0);
+                    ctx.lineTo(-ship.r * 1.4, 0);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
+            // Draw Active Pulse Laser Nodes
+            ctx.fillStyle = '#00ff41';
+            for (let l of lasers) {
+                ctx.fillRect(l.x - 1.5, l.y - 1.5, 3, 3);
+            }
+
+            // Draw Memory Data Sector Clusters (Asteroids Blocks)
+            for (let a of asteroids) {
+                ctx.save();
+                ctx.translate(a.x, a.y);
+
+                ctx.fillStyle = '#000000';
+                ctx.strokeStyle = '#ff3333';
+                ctx.lineWidth = 1.5;
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = '#ff3333';
+
+                // Render as abstract digital framing containers rather than circular rocks
+                ctx.beginPath();
+                ctx.rect(-a.radius, -a.radius, a.radius * 2, a.radius * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Imprint error logging tags inside block
+                ctx.fillStyle = '#ff3333';
+                ctx.shadowBlur = 0;
+                ctx.font = `bold ${a.size === 3 ? 12 : a.size === 2 ? 10 : 8}px monospace`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(a.textCode, 0, 0);
+
+                ctx.restore();
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            animationFrameId = requestAnimationFrame(loop);
+        }
+
+        // Core compilation init rendering frames layout mappings
+        draw();
+    </script>
+</body>
+</html>

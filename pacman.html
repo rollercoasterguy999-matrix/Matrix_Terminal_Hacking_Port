@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix_Pacman_Intrusion.exe</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #010402;
+            color: #00ff41;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        h1 {
+            margin: 0 0 5px 0;
+            font-size: 3.5vh;
+            letter-spacing: 3px;
+            text-shadow: 0 0 8px #00ff41;
+            text-align: center;
+        }
+
+        #game-container {
+            position: relative;
+            border: 2px solid #00ff41;
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.25);
+            background: #000;
+            max-height: 80vh;
+            max-width: 95vw;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            display: block;
+            max-height: 80vh;
+            max-width: 100%;
+            object-fit: contain;
+        }
+
+        /* CRT Scanline Overlay */
+        #game-container::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%);
+            z-index: 2;
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 14px;
+            z-index: 5;
+            text-shadow: 0 0 5px #000;
+        }
+
+        #screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        .overlay-title {
+            font-size: 24px;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .overlay-title.start { color: #00ff41; text-shadow: 0 0 15px #00ff41; }
+        .overlay-title.over { color: #ff3333; text-shadow: 0 0 15px #ff3333; }
+
+        .overlay-sub {
+            font-size: 13px;
+            color: #ffffff;
+            opacity: 0.8;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <h1>[ NODE_INTRUDER.SYS ]</h1>
+
+    <div id="game-container">
+        <canvas id="pacCanvas" width="440" height="500"></canvas>
+        
+        <div id="ui-layer">
+            <span id="score-display">DECRYPTED_BITS: 0</span>
+        </div>
+
+        <div id="screen-overlay" onclick="startGame()">
+            <div id="overlay-main-text" class="overlay-title start">INJECT_INTRUSION_CORE</div>
+            <div id="overlay-sub-text" class="overlay-sub">
+                ARROW KEYS or WASD to Navigate Channels<br>
+                Collect Bits. Avoid Antivirus Sentinels.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('pacCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const tileSize = 20;
+        const mapCols = 22;
+        const mapRows = 25;
+
+        let gameState = "START";
+        let score = 0;
+        let gameInterval = null;
+        let powerModeTime = 0;
+
+        // Custom Compact Matrix Maze Layout Grid Map
+        // 1 = Security Firewall (Wall), 0 = Encrypted Bit, 2 = Override Node, 3 = Empty Space
+        let map = [
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,2,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,2,1],
+            [1,0,1,1,1,0,1,1,1,0,1,1,0,1,1,1,0,1,1,1,0,1],
+            [1,0,1,1,1,0,1,1,1,0,1,1,0,1,1,1,0,1,1,1,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,1,1,1,0,1,0,1,1,1,1,1,1,0,1,0,1,1,1,0,1],
+            [1,0,0,0,0,0,1,0,0,0,1,1,0,0,0,1,0,0,0,0,0,1],
+            [1,1,1,1,1,0,1,1,1,3,1,1,3,1,1,1,0,1,1,1,1,1],
+            [3,3,3,3,1,0,1,3,3,3,3,3,3,3,3,1,0,1,3,3,3,3],
+            [1,1,1,1,1,0,1,3,1,1,3,3,1,1,3,1,0,1,1,1,1,1],
+            [3,3,3,3,3,0,3,3,1,3,3,3,3,1,3,3,0,3,3,3,3,3],
+            [1,1,1,1,1,0,1,3,1,1,1,1,1,1,3,1,0,1,1,1,1,1],
+            [3,3,3,3,1,0,1,3,3,3,3,3,3,3,3,1,0,1,3,3,3,3],
+            [1,1,1,1,1,0,1,3,1,1,1,1,1,1,3,1,0,1,1,1,1,1],
+            [1,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,1],
+            [1,0,1,1,1,0,1,1,1,0,1,1,0,1,1,1,0,1,1,1,0,1],
+            [1,2,0,0,1,0,0,0,0,0,3,3,0,0,0,0,0,1,0,0,2,1],
+            [1,1,1,0,1,0,1,0,1,1,1,1,1,1,0,1,0,1,0,1,1,1],
+            [1,0,0,0,0,0,1,0,0,0,1,1,0,0,0,1,0,0,0,0,0,1],
+            [1,0,1,1,1,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,0,1],
+            [1,0,1,1,1,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,1,1,1,0,1,1,1,0,1,1,0,1,1,1,0,1,1,1,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+        ];
+
+        // Clone tracking grid map array
+        let currentMap = [];
+
+        // Autonomous Intruder unit
+        const player = {
+            x: 11,
+            y: 16,
+            dirX: 0,
+            dirY: 0,
+            nextDirX: 0,
+            nextDirY: 0,
+            angle: 0
+        };
+
+        // Antivirus Sentinels
+        let ghosts = [];
+
+        // Background rain systems
+        let matrixDrops = [];
+        const chars = "0123456789日ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱ";
+        for (let i = 0; i < 22; i++) {
+            matrixDrops.push({ x: i * 20, y: Math.random() * canvas.height, speed: Math.random() * 1.5 + 0.5 });
+        }
+
+        // Mapping Control Events
+        window.addEventListener('keydown', (e) => {
+            if (gameState !== "PLAYING") return;
+
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+                player.nextDirX = 0; player.nextDirY = -1;
+            } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+                player.nextDirX = 0; player.nextDirY = 1;
+            } else if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+                player.nextDirX = -1; player.nextDirY = 0;
+            } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                player.nextDirX = 1; player.nextDirY = 0;
+            }
+        });
+
+        function startGame() {
+            if (gameState === "START" || gameState === "GAMEOVER") {
+                resetGame();
+                gameState = "PLAYING";
+                document.getElementById('screen-overlay').classList.add('hidden');
+                clearInterval(gameInterval);
+                gameInterval = setInterval(gameTick, 160); // Moderate tactical run step speed
+            }
+        }
+
+        function resetGame() {
+            score = 0;
+            powerModeTime = 0;
+            document.getElementById('score-display').innerText = `DECRYPTED_BITS: ${score}`;
+            
+            // Deep clone maze template values
+            currentMap = JSON.parse(JSON.stringify(map));
+
+            // Reset player profile metrics
+            player.x = 11; player.y = 16;
+            player.dirX = 0; player.dirY = 0;
+            player.nextDirX = 0; player.nextDirY = 0;
+
+            // Spawn Threat Patrol Profiles
+            ghosts = [
+                { x: 10, y: 10, dirX: 1, dirY: 0, color: '#ff3333', name: 'SENTINEL_A' },
+                { x: 11, y: 10, dirX: -1, dirY: 0, color: '#33ccff', name: 'SENTINEL_B' }
+            ];
+        }
+
+        function triggerGameOver(success = false) {
+            gameState = "GAMEOVER";
+            clearInterval(gameInterval);
+            
+            const title = document.getElementById('overlay-main-text');
+            const sub = document.getElementById('overlay-sub-text');
+
+            if (success) {
+                title.innerText = "SYSTEM_BREACH_SUCCESS";
+                title.className = "overlay-title start";
+                sub.innerHTML = `MAINFRAME COMPLETELY COMPROMISED.<br>CLICK TO INJECT REBOOT LATCH.`;
+            } else {
+                title.innerText = "TRACE_COMPLETED.ERR";
+                title.className = "overlay-title over";
+                sub.innerHTML = `INTRUDER CORE QUARANTINED.<br>BITS DECRYPTED: ${score}<br>CLICK TO RE-ATTACK`;
+            }
+            document.getElementById('screen-overlay').classList.remove('hidden');
+        }
+
+        // Logic framework process runner step tick
+        function gameTick() {
+            // Background Animation loop step logic updates
+            for (let drop of matrixDrops) {
+                drop.y += drop.speed;
+                if (drop.y > canvas.height) drop.y = -20;
+            }
+
+            if (powerModeTime > 0) powerModeTime--;
+
+            // 1. Process Player Movement Trajectories
+            if (isPathClear(player.x, player.y, player.nextDirX, player.nextDirY)) {
+                player.dirX = player.nextDirX;
+                player.dirY = player.nextDirY;
+            }
+
+            if (isPathClear(player.x, player.y, player.dirX, player.dirY)) {
+                player.x += player.dirX;
+                player.y += player.dirY;
+
+                // Set mouth rotation tracking angle
+                if (player.dirX === 1) player.angle = 0;
+                if (player.dirX === -1) player.angle = Math.PI;
+                if (player.dirY === 1) player.angle = Math.PI / 2;
+                if (player.dirY === -1) player.angle = Math.PI * 1.5;
+            }
+
+            // Screen wrap tunnel checks
+            if (player.x < 0) player.x = mapCols - 1;
+            if (player.x >= mapCols) player.x = 0;
+
+            // 2. Map Collision and Item Data Harvester Checks
+            let currentTile = currentMap[player.y][player.x];
+            if (currentTile === 0) {
+                currentMap[player.y][player.x] = 3;
+                score += 10;
+                document.getElementById('score-display').innerText = `DECRYPTED_BITS: ${score}`;
+            } else if (currentTile === 2) {
+                currentMap[player.y][player.x] = 3;
+                score += 50;
+                powerModeTime = 45; // Put Sentinels into vulnerable system error loops
+                document.getElementById('score-display').innerText = `DECRYPTED_BITS: ${score}`;
+            }
+
+            // Level compilation completion check
+            if (!currentMap.some(row => row.includes(0) || row.includes(2))) {
+                triggerGameOver(true);
+                return;
+            }
+
+            // 3. Automated Sentinels Tracking Routines
+            for (let g of ghosts) {
+                let possibleDirs = [
+                    {x: 0, y: -1}, {x: 0, y: 1}, {x: -1, y: 0}, {x: 1, y: 0}
+                ].filter(d => isPathClear(g.x, g.y, d.x, d.y) && !(d.x === -g.dirX && d.y === -g.dirY));
+
+                if (possibleDirs.length === 0) {
+                    // Force turn around if hitting dead ends
+                    g.dirX = -g.dirX; g.dirY = -g.dirY;
+                } else {
+                    // Random track channel selection logic sequence
+                    let choice = possibleDirs[Math.floor(Math.random() * possibleDirs.length)];
+                    g.dirX = choice.x; g.dirY = choice.y;
+                }
+
+                g.x += g.dirX;
+                g.y += g.dirY;
+
+                // Sentinel Screen wrap tunnel checks
+                if (g.x < 0) g.x = mapCols - 1;
+                if (g.x >= mapCols) g.x = 0;
+
+                // 4. Hit-Test Proxy Matrix Evaluation checks
+                if (g.x === player.x && g.y === player.y) {
+                    if (powerModeTime > 0) {
+                        // Delete corrupted antivirus components back to stack
+                        g.x = 11; g.y = 10;
+                        score += 200;
+                    } else {
+                        triggerGameOver(false);
+                        return;
+                    }
+                }
+            }
+
+            draw();
+        }
+
+        function isPathClear(x, y, dx, dy) {
+            let nextX = x + dx;
+            let nextY = y + dy;
+            
+            // Allow tunnel outer space checks
+            if (nextX < 0 || nextX >= mapCols) return true;
+            if (nextY < 0 || nextY >= mapRows) return false;
+
+            return currentMap[nextY][nextX] !== 1;
+        }
+
+        // Master Layout Graphic Canvas Core Paint
+        function draw() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Matrix background stream codes rendering
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.05)';
+            ctx.font = '14px monospace';
+            for (let drop of matrixDrops) {
+                let char = chars[Math.floor(Math.random() * chars.length)];
+                ctx.fillText(char, drop.x, drop.y);
+            }
+
+            // Draw Security Maze Circuit Walls & Dots Registers
+            for (let r = 0; r < mapRows; r++) {
+                for (let c = 0; c < mapCols; c++) {
+                    let tile = currentMap[r][c];
+                    let tx = c * tileSize;
+                    let ty = r * tileSize;
+
+                    if (tile === 1) {
+                        // Circuit firewall wall blocks styling layouts
+                        ctx.fillStyle = '#011202';
+                        ctx.strokeStyle = 'rgba(0, 255, 65, 0.35)';
+                        ctx.lineWidth = 1;
+                        ctx.fillRect(tx + 1, ty + 1, tileSize - 2, tileSize - 2);
+                        ctx.strokeRect(tx + 1, ty + 1, tileSize - 2, tileSize - 2);
+                    } else if (tile === 0) {
+                        // Standard Encrypted Data Pellets
+                        ctx.fillStyle = '#00ff41';
+                        ctx.font = 'bold 10px monospace';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText((r+c)%2===0?"1":"0", tx + tileSize/2, ty + tileSize/2);
+                    } else if (tile === 2) {
+                        // Override Core Node packets
+                        ctx.fillStyle = '#ffffff';
+                        ctx.shadowBlur = 10;
+                        ctx.shadowColor = '#00ff41';
+                        ctx.beginPath();
+                        ctx.arc(tx + tileSize/2, ty + tileSize/2, 5, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                    }
+                }
+            }
+
+            // Draw Autonomous Intruder Unit (Player Cursor)
+            if (gameState !== "GAMEOVER") {
+                ctx.save();
+                ctx.translate(player.x * tileSize + tileSize / 2, player.y * tileSize + tileSize / 2);
+                ctx.rotate(player.angle);
+                
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = '#00ff41';
+                
+                // Draw terminal bracket design frame wrapper instead of basic ball layout
+                ctx.font = 'bold 18px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText("]", 0, 0);
+                
+                ctx.restore();
+            }
+
+            // Draw Security Patrol Sentinels
+            for (let g of ghosts) {
+                ctx.save();
+                ctx.translate(g.x * tileSize + tileSize / 2, g.y * tileSize + tileSize / 2);
+
+                if (powerModeTime > 0) {
+                    // Sentinels flash white/blue terminal error patterns when vulnerable
+                    ctx.fillStyle = powerModeTime % 2 === 0 ? '#ffffff' : '#003311';
+                    ctx.strokeStyle = '#00ff41';
+                } else {
+                    ctx.fillStyle = '#000000';
+                    ctx.strokeStyle = g.color;
+                }
+
+                ctx.lineWidth = 2;
+                ctx.font = 'bold 15px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // Represent Sentinels as abstract network node security eye elements
+                ctx.fillText("X", 0, 0);
+                ctx.strokeText("X", 0, 0);
+
+                ctx.restore();
+            }
+        }
+
+        // Boot execution init sequence
+        draw();
+    </script>
+</body>
+</html>
